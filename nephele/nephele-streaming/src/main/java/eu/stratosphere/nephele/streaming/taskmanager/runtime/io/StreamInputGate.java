@@ -15,6 +15,12 @@
 
 package eu.stratosphere.nephele.streaming.taskmanager.runtime.io;
 
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import org.apache.log4j.Logger;
+
 import eu.stratosphere.nephele.event.task.AbstractTaskEvent;
 import eu.stratosphere.nephele.io.InputChannelResult;
 import eu.stratosphere.nephele.io.InputGate;
@@ -27,11 +33,6 @@ import eu.stratosphere.nephele.plugins.wrapper.AbstractInputGateWrapper;
 import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.listener.InputGateQosReportingListener;
 import eu.stratosphere.nephele.types.AbstractTaggableRecord;
 import eu.stratosphere.nephele.types.Record;
-import org.apache.log4j.Logger;
-
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Wraps Nephele's {@link eu.stratosphere.nephele.io.RuntimeInputGate} to
@@ -82,6 +83,8 @@ public final class StreamInputGate<T extends Record> extends
   @Override
   public InputChannelResult readRecord(final T target) throws IOException,
       InterruptedException {
+	  
+	this.handleGateState();
 
     if (this.isClosed()) {
       return InputChannelResult.END_OF_STREAM;
@@ -117,7 +120,14 @@ public final class StreamInputGate<T extends Record> extends
         return InputChannelResult.EVENT;
       case NONE:
         this.channelChooser.decreaseAvailableInputOnCurrentChannel();
-        return InputChannelResult.NONE;
+
+    	this.handleGateState();
+		// handleGateState() can declare the gate closed
+		if (this.isClosed()) {
+			return InputChannelResult.END_OF_STREAM;
+		} else {
+			return InputChannelResult.NONE;
+		}
       case END_OF_STREAM:
         this.channelChooser.setNoAvailableInputOnCurrentChannel();
         return isClosed() ? InputChannelResult.END_OF_STREAM
@@ -166,25 +176,6 @@ public final class StreamInputGate<T extends Record> extends
     if (listener != null) {
       listener.reportRecordAvailability(this);
     }
-  }
-
-  /**
-   * {@inheritDoc}
-   */
-  @Override
-  public void registerRecordAvailabilityListener(
-      final RecordAvailabilityListener<T> listener) {
-    this.getWrappedInputGate().registerRecordAvailabilityListener(listener);
-  }
-
-  @Override
-  public RecordAvailabilityListener<T> getRecordAvailabilityListener() {
-    return this.getWrappedInputGate().getRecordAvailabilityListener();
-  }
-
-  @Override
-  public void notifyDataUnitConsumed(int channelIndex) {
-    this.getWrappedInputGate().notifyDataUnitConsumed(channelIndex);
   }
 
   public void haltTaskThreadIfNecessary() throws InterruptedException {
