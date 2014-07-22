@@ -14,10 +14,7 @@
  **********************************************************************************************************************/
 package eu.stratosphere.nephele.streaming.taskmanager.chaining;
 
-import java.lang.management.ManagementFactory;
-import java.lang.management.ThreadMXBean;
 import java.util.ArrayList;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,8 +24,9 @@ import org.apache.log4j.Logger;
 import eu.stratosphere.nephele.executiongraph.ExecutionVertexID;
 import eu.stratosphere.nephele.profiling.ProfilingException;
 import eu.stratosphere.nephele.streaming.message.action.CandidateChainConfig;
+import eu.stratosphere.nephele.streaming.taskmanager.profiling.TaskInfo;
+import eu.stratosphere.nephele.streaming.taskmanager.profiling.TaskProfilingThread;
 import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.QosReporterConfigCenter;
-import eu.stratosphere.nephele.taskmanager.runtime.RuntimeTask;
 
 /**
  * @author Bjoern Lohrmann
@@ -42,13 +40,9 @@ public class ChainManagerThread extends Thread {
 	private final ExecutorService backgroundChainingWorkers = Executors
 			.newCachedThreadPool();
 
-	private final ConcurrentHashMap<ExecutionVertexID, TaskInfo> activeMapperTasks = new ConcurrentHashMap<ExecutionVertexID, TaskInfo>();
-
 	private final CopyOnWriteArraySet<CandidateChainConfig> pendingCandidateChainConfigs = new CopyOnWriteArraySet<CandidateChainConfig>();
 
 	private final ArrayList<TaskChainer> taskChainers = new ArrayList<TaskChainer>();
-
-	private final ThreadMXBean tmx = ManagementFactory.getThreadMXBean();
 
 	private final QosReporterConfigCenter configCenter;
 
@@ -58,15 +52,6 @@ public class ChainManagerThread extends Thread {
 			throws ProfilingException {
 		
 		this.configCenter = configCenter;
-
-		// Initialize MX interface and check if thread contention monitoring is
-		// supported
-		if (this.tmx.isThreadContentionMonitoringSupported()) {
-			this.tmx.setThreadContentionMonitoringEnabled(true);
-		} else {
-			throw new ProfilingException(
-					"The thread contention monitoring is not supported.");
-		}
 		this.started = false;
 		this.setName("ChainManager");
 	}
@@ -78,7 +63,6 @@ public class ChainManagerThread extends Thread {
 		try {
 			while (!interrupted()) {
 				this.processPendingCandidateChainConfigs();
-				this.collectThreadProfilingData();
 
 				if (counter == 5) {
 					this.attemptDynamicChaining();
@@ -118,7 +102,7 @@ public class ChainManagerThread extends Thread {
 		for (ExecutionVertexID vertexID : candidateChainConfig
 				.getChainingCandidates()) {
 
-			TaskInfo taskInfo = this.activeMapperTasks.get(vertexID);
+			TaskInfo taskInfo = TaskProfilingThread.getTaskInfo(vertexID);
 			if (taskInfo == null) {
 				return false;
 			}
@@ -132,12 +116,6 @@ public class ChainManagerThread extends Thread {
 		return true;
 	}
 
-	private void collectThreadProfilingData() {
-		for (TaskChainer taskChainer : this.taskChainers) {
-			taskChainer.measureCPUUtilizations();
-		}
-	}
-
 	private void cleanUp() {
 		// FIXME clean up data structures here
 	}
@@ -146,28 +124,13 @@ public class ChainManagerThread extends Thread {
 		this.interrupt();
 	}
 
-	public synchronized void registerMapperTask(RuntimeTask task) {
-		TaskInfo taskInfo = new TaskInfo(task, this.tmx);
-		this.activeMapperTasks.put(task.getVertexID(), taskInfo);
-
+	public void registerCandidateChain(CandidateChainConfig chainConfig) {
+		this.pendingCandidateChainConfigs.add(chainConfig);
+		
 		if (!this.started) {
 			this.started = true;
 			this.start();
 		}
-	}
 
-	public synchronized void unregisterMapperTask(ExecutionVertexID vertexID) {
-		TaskInfo taskInfo = this.activeMapperTasks.remove(vertexID);
-		if (taskInfo != null) {
-			taskInfo.cleanUp();
-		}
-
-		if (this.activeMapperTasks.isEmpty()) {
-			shutdown();
-		}
-	}
-
-	public void registerCandidateChain(CandidateChainConfig chainConfig) {
-		this.pendingCandidateChainConfigs.add(chainConfig);
 	}
 }

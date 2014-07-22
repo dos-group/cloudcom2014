@@ -32,6 +32,7 @@ import eu.stratosphere.nephele.streaming.message.action.SetOutputLatencyTargetAc
 import eu.stratosphere.nephele.streaming.message.qosreport.QosReport;
 import eu.stratosphere.nephele.streaming.taskmanager.StreamTaskManagerPlugin;
 import eu.stratosphere.nephele.streaming.taskmanager.chaining.ChainManagerThread;
+import eu.stratosphere.nephele.streaming.taskmanager.profiling.TaskProfilingThread;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmanager.QosManagerThread;
 import eu.stratosphere.nephele.streaming.taskmanager.runtime.StreamTaskEnvironment;
 import eu.stratosphere.nephele.taskmanager.runtime.RuntimeTask;
@@ -108,8 +109,10 @@ public class StreamJobEnvironment {
 							this.qosReportForwarder));
 		}
 
-		if (streamEnv.isMapperTask()) {
-			this.chainManager.registerMapperTask(task);
+		try {
+			TaskProfilingThread.registerTask(task);
+		} catch (Exception e) {
+			LOG.error("Error when registering task for profiling.", e);
 		}
 	}
 
@@ -248,7 +251,6 @@ public class StreamJobEnvironment {
 		}
 	}
 
-	@SuppressWarnings("unused")
 	public synchronized void unregisterTask(ExecutionVertexID vertexID,
 			Environment environment) {
 
@@ -258,13 +260,13 @@ public class StreamJobEnvironment {
 
 		StreamTaskQosCoordinator qosCoordinator = this.taskQosCoordinators
 				.get(vertexID);
+		
+		TaskProfilingThread.unregisterTask(vertexID);
 
 		if (qosCoordinator != null) {
 			// shuts down Qos reporting for this vertex
 			qosCoordinator.shutdownReporting();
 			this.taskQosCoordinators.remove(vertexID);
-
-			this.chainManager.unregisterMapperTask(vertexID);
 		}
 
 		if (this.taskQosCoordinators.isEmpty()) {
