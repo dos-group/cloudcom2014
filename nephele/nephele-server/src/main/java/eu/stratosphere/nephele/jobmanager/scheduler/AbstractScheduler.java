@@ -883,8 +883,7 @@ public abstract class AbstractScheduler implements InstanceListener {
 		}
 	}
 
-	private void waitForStableState(ExecutionGroupVertex groupVertex)
-			throws InterruptedException {
+	private void waitForStableState(ExecutionGroupVertex groupVertex) {
 
 		boolean dirty = false;
 		do {
@@ -899,7 +898,9 @@ public abstract class AbstractScheduler implements InstanceListener {
 			}
 
 			if (dirty) {
-				Thread.sleep(500);
+				try {
+					Thread.sleep(500);
+				} catch(InterruptedException e) { /* sleep failed. no problem, just run a new check loop */ }
 			}
 		} while (dirty);
 	}
