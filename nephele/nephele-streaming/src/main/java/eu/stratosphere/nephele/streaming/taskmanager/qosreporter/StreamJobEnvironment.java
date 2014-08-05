@@ -269,8 +269,7 @@ public class StreamJobEnvironment {
 			this.taskQosCoordinators.remove(vertexID);
 		}
 
-		if (this.taskQosCoordinators.isEmpty()) {
-			shutdownEnvironment();
-		}
+		// don't shutdown environment in elastic scale edition
+		// TODO: shutdown environment after job is done instead of all local tasks are unregistered
 	}
 }
