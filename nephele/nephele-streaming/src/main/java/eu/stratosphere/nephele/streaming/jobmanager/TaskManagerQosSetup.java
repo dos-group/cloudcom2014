@@ -31,6 +31,7 @@ import eu.stratosphere.nephele.streaming.message.action.QosManagerConfig;
 import eu.stratosphere.nephele.streaming.message.action.VertexQosReporterConfig;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosEdge;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosGraph;
+import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosManagerID;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosReporterID;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosVertex;
 
@@ -46,6 +47,8 @@ public class TaskManagerQosSetup {
 	private InstanceConnectionInfo taskManagerConnectionInfo;
 
 	private HashMap<LatencyConstraintID, QosManagerRole> managerRoles;
+	
+	private QosManagerID qosManagerID;
 
 	private HashMap<QosReporterID, QosReporterRole> reporterRoles;
 
@@ -69,6 +72,13 @@ public class TaskManagerQosSetup {
 		}
 
 		this.managerRoles.put(managerRole.getConstraintID(), managerRole);
+		if (this.qosManagerID == null) {
+			this.qosManagerID = new QosManagerID();
+		}
+	}
+
+	public QosManagerID getQosManagerID() {
+		return qosManagerID;
 	}
 
 	public void addReporterRole(QosReporterRole reporterRole) {
@@ -133,8 +143,8 @@ public class TaskManagerQosSetup {
 						.cloneWithoutMembers());
 			}
 		}
-		deploymentAction.setQosManager(new QosManagerConfig(shallowQosGraph));
 
+		deploymentAction.setQosManager(new QosManagerConfig(shallowQosGraph, this.qosManagerID));
 		return deploymentAction;
 	}
 
