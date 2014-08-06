@@ -18,6 +18,7 @@ import eu.stratosphere.nephele.streaming.LatencyConstraintID;
 import eu.stratosphere.nephele.streaming.message.AbstractQosMessage;
 import eu.stratosphere.nephele.streaming.message.ChainUpdates;
 import eu.stratosphere.nephele.streaming.message.QosManagerConstraintSummaries;
+import eu.stratosphere.nephele.streaming.message.action.DeployInstanceQosManagerRoleAction;
 import eu.stratosphere.nephele.streaming.message.action.DeployInstanceQosRolesAction;
 import eu.stratosphere.nephele.streaming.message.action.QosManagerConfig;
 import eu.stratosphere.nephele.streaming.message.qosreport.QosReport;
@@ -110,7 +111,9 @@ public class QosManagerThread extends Thread {
 							.getEdgeQosReporterAnnouncements().size();
 					nooOfReports++;
 				} else if (streamingData instanceof DeployInstanceQosRolesAction) {
-					QosManagerConfig config = ((DeployInstanceQosRolesAction) streamingData).getQosManager();
+					throw new RuntimeException("Got unexpected DeployInstanceQosRolesAction@QosManager!");
+				} else if (streamingData instanceof DeployInstanceQosManagerRoleAction) {
+					QosManagerConfig config = ((DeployInstanceQosManagerRoleAction) streamingData).getQosManager();
 					this.qosManagerID = config.getQosManagerID();
 					this.qosModel.mergeShallowQosGraph(config.getShallowQosGraph());
 				} else if (streamingData instanceof ChainUpdates) {

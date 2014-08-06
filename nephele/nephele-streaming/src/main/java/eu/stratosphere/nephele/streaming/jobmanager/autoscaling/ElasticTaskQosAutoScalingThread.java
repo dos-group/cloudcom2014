@@ -100,6 +100,8 @@ public class ElasticTaskQosAutoScalingThread extends Thread {
 		} finally {
 			cleanUp();
 		}
+
+		LOG.info("Qos Auto Scaling Thread stopped.");
 	}
 
 	private void doAutoscale() {
