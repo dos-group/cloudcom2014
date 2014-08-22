@@ -6,6 +6,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -31,11 +34,14 @@ import eu.stratosphere.nephele.streaming.LatencyConstraintID;
 import eu.stratosphere.nephele.streaming.StreamingPluginLoader;
 import eu.stratosphere.nephele.streaming.jobmanager.autoscaling.ElasticTaskQosAutoScalingThread;
 import eu.stratosphere.nephele.streaming.message.AbstractSerializableQosMessage;
+import eu.stratosphere.nephele.streaming.message.action.DeployInstanceQosManagerRoleAction;
+import eu.stratosphere.nephele.streaming.message.action.DeployInstanceQosRolesAction;
 import eu.stratosphere.nephele.streaming.message.action.DestroyInstanceQosRolesAction;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosGraph;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosGraphFactory;
 import eu.stratosphere.nephele.streaming.taskmanager.runtime.WrapperUtils;
 import eu.stratosphere.nephele.streaming.util.StreamUtil;
+import eu.stratosphere.nephele.taskmanager.runtime.ExecutorThreadFactory;
 
 /**
  * This class coordinates Qos setup computation on the job manager for a given
@@ -271,13 +277,56 @@ public class QosSetupManager implements VertexAssignmentListener {
 		}
 	}
 
-	private void computeAndDistributeQosSetup() throws IOException {
-		this.qosGraphs = createQosGraphs();
-		this.qosSetup = new QosSetup(this.qosGraphs);
-		this.qosSetup.computeQosRoles();
-		this.qosSetup.computeCandidateChains(this.executionGraph);
-		this.qosSetup.attachRolesToExecutionGraph(this.executionGraph);
-		this.qosSetup.distributeManagerRoles(executionGraph, this.taskManagers);
+	private void computeAndDistributeQosSetup() throws IOException, InterruptedException {
+		qosGraphs = createQosGraphs();
+		
+		qosSetup = new QosSetup(this.qosGraphs);
+		qosSetup.computeQosRoles();
+		qosSetup.computeCandidateChains(this.executionGraph);
+		
+		distributeQosSetup();
+	}
+	
+	private void distributeQosSetup() throws IOException, InterruptedException {
+
+		ExecutorService threadPool = Executors.newFixedThreadPool(10,
+				ExecutorThreadFactory.INSTANCE);
+
+		for (final TaskManagerQosSetup instanceQosRoles : qosSetup
+				.getQosRoles().values()) {
+
+			threadPool.execute(new Runnable() {
+				@Override
+				public void run() {
+					try {
+						AbstractInstance instance = taskManagers
+								.get(instanceQosRoles.getConnectionInfo());
+						
+						if (instanceQosRoles.hasQosManagerRoles()) {
+							DeployInstanceQosManagerRoleAction managerRole = instanceQosRoles
+									.toManagerDeploymentAction(executionGraph
+											.getJobID());
+
+							instance.sendData(StreamingPluginLoader.STREAMING_PLUGIN_ID,
+									managerRole);
+						}
+						
+						DeployInstanceQosRolesAction reporterRoles = instanceQosRoles
+								.toDeploymentAction(executionGraph.getJobID());
+						instance.sendData(StreamingPluginLoader.STREAMING_PLUGIN_ID,
+								reporterRoles);
+
+					} catch (Exception e) {
+						LOG.error("Error while distribution QoS roles to task managers",
+								e);
+					}
+				}
+			});
+		}
+
+		threadPool.shutdown();
+		threadPool.awaitTermination(Integer.MAX_VALUE, TimeUnit.SECONDS);
+		LOG.info(String.format("Distributed QoS roles to %d task managers", qosSetup.getQosRoles().size()));
 	}
 
 	private void ensureElasticTaskAutoScalerIsRunning() {
