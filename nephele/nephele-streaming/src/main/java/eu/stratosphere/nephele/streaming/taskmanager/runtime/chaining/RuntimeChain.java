@@ -74,7 +74,7 @@ public final class RuntimeChain {
 		} else {
 			while (!outputCollector.isEmpty()) {
 				Record outputRecord = (Record) outputCollector.poll();
-				outputGate.reportRecordEmitted(outputRecord);
+				outputGate.reportRecordEmitted(outputRecord, 0);
 				this.executeMappers(RecordUtils.createCopy(outputRecord),
 						indexInChain + 1);
 			}
