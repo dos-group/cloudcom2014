@@ -963,9 +963,4 @@ public class RuntimeEnvironment implements Environment, Runnable {
 
 		return Collections.unmodifiableSet(inputChannelIDs);
 	}
-
-	@Override
-	public void registerMapper(Mapper<? extends Record, ? extends Record> mapper) {
-		// Nothing to do here
-	}
 }
