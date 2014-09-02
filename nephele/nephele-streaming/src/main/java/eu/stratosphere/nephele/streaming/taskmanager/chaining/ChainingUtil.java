@@ -15,6 +15,7 @@
 package eu.stratosphere.nephele.streaming.taskmanager.chaining;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -143,5 +144,21 @@ public class ChainingUtil {
 
 		announceNewChainingStatus(leftChain.getJobID(),
 				Collections.singleton(unchainedEdge), false, configCenter);
+	}
+
+	/**
+	 * Announce all edges in given chains as unchained.
+	 */
+	public static void announceAllTasksUnchained(Collection<TaskChain> chains,
+			QosReporterConfigCenter configCenter) throws InterruptedException {
+
+		HashSet<QosReporterID.Edge> unchainedEdges = new HashSet<QosReporterID.Edge>();
+		JobID jobID = null;
+		for (TaskChain chain : chains) {
+			unchainedEdges.addAll(collectChainedEdges(chain));
+			jobID = chain.getJobID();
+		}
+
+		announceNewChainingStatus(jobID, unchainedEdges, false, configCenter);
 	}
 }
