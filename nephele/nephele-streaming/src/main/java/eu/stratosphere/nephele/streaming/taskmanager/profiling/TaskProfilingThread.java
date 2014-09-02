@@ -79,7 +79,7 @@ public class TaskProfilingThread extends Thread {
 
 		} finally {
 			cleanUp();
-			LOG.info("ChainManager thread stopped.");
+			LOG.info("TaskProfiler thread stopped.");
 		}
 	}
 
