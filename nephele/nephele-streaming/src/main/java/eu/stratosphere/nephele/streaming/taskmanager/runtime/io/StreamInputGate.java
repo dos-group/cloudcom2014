@@ -178,14 +178,18 @@ public final class StreamInputGate<T extends Record> extends
     }
   }
 
-  public void haltTaskThreadIfNecessary() throws InterruptedException {
-    this.channelChooser.setBlockIfNoChannelAvailable(false);
-    synchronized (this.taskThreadHalted) {
-      if (!this.taskThreadHalted.get()) {
-        this.taskThreadHalted.wait();
-      }
-    }
-  }
+	public void haltTaskThreadIfNecessary() throws InterruptedException {
+		this.channelChooser.setBlockIfNoChannelAvailable(false);
+		RecordAvailabilityListener<T> listener = this.getRecordAvailabilityListener();
+		if (listener != null) {
+			listener.reportRecordAvailability(this);
+		}
+		synchronized (this.taskThreadHalted) {
+			if (!this.taskThreadHalted.get()) {
+				this.taskThreadHalted.wait();
+			}
+		}
+	}
 
   public void wakeUpTaskThreadIfNecessary() {
     this.channelChooser.setBlockIfNoChannelAvailable(true);

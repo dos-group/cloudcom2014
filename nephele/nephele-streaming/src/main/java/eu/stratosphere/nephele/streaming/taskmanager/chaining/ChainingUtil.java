@@ -104,17 +104,16 @@ public class ChainingUtil {
 		for (int i = 0; i < chainModel.getNumberOfChainedTasks(); i++) {
 			StreamTaskEnvironment taskEnvironment = chainModel.getTask(i)
 					.getStreamTaskEnvironment();
-			chainLinks.add(new RuntimeChainLink(taskEnvironment,
+			chainLinks.add(new RuntimeChainLink(taskEnvironment, taskEnvironment.getIocTask(),
 					taskEnvironment.getInputGate(0), taskEnvironment
-							.getOutputGate(0)));
+					.getOutputGate(0)));
 		}
 
-		RuntimeChain runtimeChain = new RuntimeChain(chainLinks);
-		return runtimeChain;
+		return new RuntimeChain(chainLinks);
 	}
 
 	public static void unchainAndAnnounceTaskThreads(TaskChain leftChain,
-			TaskChain rightChain, QosReporterConfigCenter configCenter)
+																									 TaskChain rightChain, QosReporterConfigCenter configCenter)
 			throws InterruptedException {
 
 		if (leftChain.getNumberOfChainedTasks() > 1) {
