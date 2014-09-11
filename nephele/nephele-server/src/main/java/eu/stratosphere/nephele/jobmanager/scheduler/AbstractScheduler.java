@@ -21,6 +21,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -51,6 +52,7 @@ import eu.stratosphere.nephele.instance.InstanceListener;
 import eu.stratosphere.nephele.instance.InstanceManager;
 import eu.stratosphere.nephele.instance.InstanceRequestMap;
 import eu.stratosphere.nephele.instance.InstanceType;
+import eu.stratosphere.nephele.io.DistributionPattern;
 import eu.stratosphere.nephele.jobgraph.JobID;
 import eu.stratosphere.nephele.jobgraph.JobVertexID;
 import eu.stratosphere.nephele.jobmanager.DeploymentManager;
@@ -820,75 +822,51 @@ public abstract class AbstractScheduler implements InstanceListener {
 		return false;
 	}
 
-	public void scaleDownElasticTask(JobID jobID, JobVertexID jobVertexID,
-			final int noOfSubtasksToSuspend) throws Exception {
+	public void scaleDownElasticTask(JobID jobID, JobVertexID jobVertexID, final int noOfSubtasksToSuspend) throws Exception {
 
 		final ExecutionGraph graph = getExecutionGraphByID(jobID);
 		final ExecutionGroupVertex groupVertex = graph.getExecutionGroupVertex(jobVertexID);
+		final List<ExecutionGroupVertex> verticesOnPath = collectPointwiseConnectedGroupVerticies(groupVertex);
+		final ExecutionGroupVertex firstGroupVertex = verticesOnPath.get(0);
 
-        int targetNumber = groupVertex.getCurrentElasticNumberOfRunningSubtasks() - noOfSubtasksToSuspend;
+		int targetNumber = firstGroupVertex.getCurrentElasticNumberOfRunningSubtasks() - noOfSubtasksToSuspend;
 
-        if (targetNumber < groupVertex.getMinElasticNumberOfRunningSubtasks()) {
-            throw new RuntimeException("Not enough subtasks to suspend available. This is a bug.");
-        }
+		if (targetNumber < firstGroupVertex.getMinElasticNumberOfRunningSubtasks()) {
+			throw new RuntimeException("Not enough subtasks to suspend available. This is a bug.");
+		}
 
-        for (int i = 0; i < noOfSubtasksToSuspend && targetNumber < groupVertex.getCurrentElasticNumberOfRunningSubtasks(); i++) {
-            Runnable command = new Runnable() {
-                @Override
-                public void run() {
-                    int idxToSuspend = groupVertex.getCurrentElasticNumberOfRunningSubtasks() - 1;
-                    ExecutionVertex target = groupVertex.getGroupMember(idxToSuspend);
-                    ExecutionVertex firstCandidateInPath = findFirstTaskVertexInPointWiseConnectedPath(target);
+		for (int i = 0; i < noOfSubtasksToSuspend && targetNumber < groupVertex.getCurrentElasticNumberOfRunningSubtasks(); i++) {
 
-                    LOG.info("Scaling down vertex " + target.getName() + " via predecessor " + firstCandidateInPath.getName());
+			Runnable command = new Runnable() {
+				@Override
+				public void run() {
+					int idxToSuspend = firstGroupVertex.getCurrentElasticNumberOfRunningSubtasks() - 1;
+					ExecutionVertex target = firstGroupVertex.getGroupMember(idxToSuspend);
 
-                    TaskSuspendResult result = firstCandidateInPath.suspendTask();
-                    if (result.getReturnCode() == ReturnCode.SUCCESS) {
-                        firstCandidateInPath.compareAndUpdateExecutionState(ExecutionState.RUNNING, ExecutionState.SUSPENDING);
-                    } else {
-                        throw new RuntimeException(String.format("Failed to suspend task %s", result.getDescription()));
-                    }
-                }
+					if (groupVertex != firstGroupVertex)
+						LOG.info("Scaling down vertex " + groupVertex.getName() + " via predecessor " + target.getName() + ".");
+					else
+						LOG.info("Scaling down vertex " + target.getName() + ".");
 
-                /**
-                 * Follow backward connections until bipartite wiring or source task found.
-                 */
-                private ExecutionVertex findFirstTaskVertexInPointWiseConnectedPath(ExecutionVertex startVertex) {
-                    ExecutionVertex current = startVertex; // current
+					TaskSuspendResult result = target.suspendTask();
+					if (result.getReturnCode() == ReturnCode.SUCCESS) {
+						target.compareAndUpdateExecutionState(ExecutionState.RUNNING, ExecutionState.SUSPENDING);
+					} else {
+						throw new RuntimeException(String.format("Failed to suspend task %s", result.getDescription()));
+					}
+				}
+			};
 
-                    if (current.getNumberOfInputGates() != 1)
-                        throw new RuntimeException("More than one input gate found. Not supported yet. This is a bug.");
+			try {
+				graph.executeCommand(command).get();
+			} catch (ExecutionException e) {
+				RuntimeException cause = (RuntimeException) e.getCause();
+				throw cause;
+			}
 
-                    // only equal min/max/init subtasks allowed on connected vertices
-                    // edges = 1 => point wise, edges > 1 => bipartite
-                    while (current.getInputGate(0).getNumberOfEdges() == 1
-                            && current.getInputGate(0).getEdge(0).getOutputGate().getNumberOfEdges() == 1
-                            && !current.getInputGate(0).getEdge(0).getOutputGate().getVertex().isInputVertex()) {
-
-                        current = current.getInputGate(0).getEdge(0).getOutputGate().getVertex();
-
-                        if (current.getNumberOfInputGates() != 1)
-                            throw new RuntimeException("More than one input gate found. Not supported yet. This is a bug.");
-                        if (current.getExecutionState() != ExecutionState.RUNNING)
-                            throw new RuntimeException(
-                                    "Found vertex " + current.getName()
-                                    + " with unexpected state " + current.getExecutionState() + ". This is a bug.");
-                    }
-
-                    return current;
-                }
-            };
-
-            try {
-                graph.executeCommand(command).get();
-            } catch (ExecutionException e) {
-                RuntimeException cause = (RuntimeException) e.getCause();
-                throw cause;
-            }
-
-            waitForStableState(groupVertex);
-        }
-    }
+			waitForStableState(verticesOnPath);
+		}
+	}
 
 	private void waitForStableState(ExecutionGroupVertex groupVertex)
 			throws InterruptedException {
@@ -909,6 +887,62 @@ public abstract class AbstractScheduler implements InstanceListener {
 				Thread.sleep(500);
 			}
 		} while (dirty);
+	}
+
+	private void waitForStableState(List<ExecutionGroupVertex> groupVertexPath) throws InterruptedException {
+
+		boolean dirty = false;
+		do {
+			dirty = false;
+			for (ExecutionGroupVertex groupVertex : groupVertexPath) {
+				for (int i = 0; i < groupVertex.getCurrentNumberOfGroupMembers(); i++) {
+					ExecutionVertex vertex = groupVertex.getGroupMember(i);
+					if (vertex.getExecutionState() != ExecutionState.RUNNING && vertex.getExecutionState() != ExecutionState.SUSPENDED) {
+						dirty = true;
+						break;
+					}
+				}
+			}
+
+			if (dirty) {
+				Thread.sleep(500);
+			}
+		} while (dirty);
+	}
+
+	/**
+	 * Returns an order list of point wise connected group vertices (a scaling
+	 * path).
+	 */
+	private List<ExecutionGroupVertex> collectPointwiseConnectedGroupVerticies(ExecutionGroupVertex startVertex) {
+		LinkedList<ExecutionGroupVertex> result = new LinkedList<ExecutionGroupVertex>();
+		result.add(startVertex);
+
+		// collect backward/input linked vertices
+		ExecutionGroupVertex current = startVertex;
+		while (!current.isInputVertex() && current.getNumberOfBackwardLinks() == 1
+				&& current.getBackwardEdge(0).getDistributionPattern() == DistributionPattern.POINTWISE) {
+
+			current = current.getBackwardEdge(0).getSourceVertex();
+			result.addFirst(current);
+		}
+
+		if (current.getNumberOfBackwardLinks() != 1)
+			throw new RuntimeException("More than one input link found. Not supported yet. This is a bug.");
+
+		// collect forward/output linked vertices
+		current = startVertex;
+		while (!current.isOutputVertex() && current.getNumberOfForwardLinks() == 1
+				&& current.getForwardEdge(0).getDistributionPattern() == DistributionPattern.POINTWISE) {
+
+			current = current.getForwardEdge(0).getTargetVertex();
+			result.addLast(current);
+		}
+
+		if (current.getNumberOfForwardLinks() != 1)
+			throw new RuntimeException("More than one input link found. Not supported yet. This is a bug.");
+
+		return result;
 	}
 
 	public JobVertexID getJobVertexIdByName(JobID jobID, String jobVertexName) {
