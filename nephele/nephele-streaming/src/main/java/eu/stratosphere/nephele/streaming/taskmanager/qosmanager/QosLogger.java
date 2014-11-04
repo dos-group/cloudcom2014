@@ -19,7 +19,6 @@ import java.io.FileWriter;
 import java.io.IOException;
 
 import eu.stratosphere.nephele.configuration.GlobalConfiguration;
-import eu.stratosphere.nephele.jobgraph.JobVertexID;
 import eu.stratosphere.nephele.plugins.PluginManager;
 import eu.stratosphere.nephele.streaming.JobGraphLatencyConstraint;
 import eu.stratosphere.nephele.streaming.JobGraphSequence;
@@ -112,7 +111,7 @@ public class QosLogger {
 
 		int edgeIndex = 0;
 
-		for (SequenceElement<JobVertexID> sequenceElement : jobGraphSequence) {
+		for (SequenceElement sequenceElement : jobGraphSequence) {
 			if (sequenceElement.isVertex()) {
 				builder.append(';');
 				builder.append(sequenceElement.getName());
