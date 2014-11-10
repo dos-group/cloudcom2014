@@ -36,7 +36,7 @@ import eu.stratosphere.nephele.jobgraph.JobVertexID;
  * @author Bjoern Lohrmann
  * 
  */
-public class JobGraphSequence extends LinkedList<SequenceElement<JobVertexID>>
+public class JobGraphSequence extends LinkedList<SequenceElement>
 		implements IOReadableWritable {
 
 	private static final long serialVersionUID = 1199328037569471951L;
@@ -50,7 +50,7 @@ public class JobGraphSequence extends LinkedList<SequenceElement<JobVertexID>>
 	public void addVertex(JobVertexID vertexID, String vertexName, int inputGateIndex,
 			int outputGateIndex) {
 
-		this.add(new SequenceElement<JobVertexID>(
+		this.add(new SequenceElement(
 				vertexID, inputGateIndex, outputGateIndex, this.size(), vertexName));
 		this.verticesInSequence.add(vertexID);
 	}
@@ -58,7 +58,7 @@ public class JobGraphSequence extends LinkedList<SequenceElement<JobVertexID>>
 	public void addEdge(JobVertexID sourceVertexID, int outputGateIndex,
 			JobVertexID targetVertexID, int inputGateIndex) {
 		
-		this.add(new SequenceElement<JobVertexID>(sourceVertexID,
+		this.add(new SequenceElement(sourceVertexID,
 				outputGateIndex, targetVertexID, inputGateIndex, this.size(), "edge"));
 	}
 
@@ -83,7 +83,7 @@ public class JobGraphSequence extends LinkedList<SequenceElement<JobVertexID>>
 	@Override
 	public void write(DataOutput out) throws IOException {
 		out.writeInt(this.size());
-		for (SequenceElement<JobVertexID> element : this) {
+		for (SequenceElement element : this) {
 			element.write(out);
 		}
 	}
@@ -98,7 +98,7 @@ public class JobGraphSequence extends LinkedList<SequenceElement<JobVertexID>>
 	public void read(DataInput in) throws IOException {
 		int elementCount = in.readInt();
 		for (int i = 0; i < elementCount; i++) {
-			SequenceElement<JobVertexID> element = new SequenceElement<JobVertexID>();
+			SequenceElement element = new SequenceElement();
 			element.read(in);
 			this.add(element);
 			if (element.isVertex()) {

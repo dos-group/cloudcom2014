@@ -28,4 +28,8 @@ public interface InputGateQosReportingListener {
 
 	public void recordReceived(int inputChannel, AbstractTaggableRecord record);
 
+	public void tryingToReadRecord();
+
+	public void inputBufferConsumed(int channelIndex,
+			long bufferInterarrivalTimeNanos, int recordsReadFromBuffer);
 }

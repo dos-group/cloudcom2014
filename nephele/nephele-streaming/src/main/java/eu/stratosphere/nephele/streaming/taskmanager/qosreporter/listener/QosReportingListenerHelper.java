@@ -17,7 +17,7 @@ package eu.stratosphere.nephele.streaming.taskmanager.qosreporter.listener;
 import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.InputGateReporterManager;
 import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.OutputGateReporterManager;
 import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.TimestampTag;
-import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.VertexStatisticsReportManager;
+import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.vertex.VertexStatisticsReportManager;
 import eu.stratosphere.nephele.streaming.taskmanager.runtime.io.StreamInputGate;
 import eu.stratosphere.nephele.streaming.taskmanager.runtime.io.StreamOutputGate;
 import eu.stratosphere.nephele.types.AbstractTaggableRecord;
@@ -44,6 +44,17 @@ public class QosReportingListenerHelper {
 			public void recordReceived(int inputChannelIndex,
 					AbstractTaggableRecord record) {
 				vertexStatsManager.recordReceived(gateIndex);
+			}
+
+			@Override
+			public void tryingToReadRecord() {
+				vertexStatsManager.tryingToReadRecord(gateIndex);
+			}
+
+			@Override
+			public void inputBufferConsumed(int channelIndex,
+					long bufferInterarrivalTimeNanos, int recordsReadFromBuffer) {
+				vertexStatsManager.inputBufferConsumed(gateIndex, channelIndex, bufferInterarrivalTimeNanos, recordsReadFromBuffer);
 			}
 		};
 		InputGateQosReportingListener oldListener = inputGate
@@ -103,6 +114,17 @@ public class QosReportingListenerHelper {
 							inputChannelIndexinRuntimeGate, timestampTag);
 				}
 			}
+
+			@Override
+			public void tryingToReadRecord() {
+				// nothing to do
+			}
+
+			@Override
+			public void inputBufferConsumed(int channelIndex,
+					long bufferInterarrivalTimeNanos, int recordsReadFromBuffer) {
+				// nothing to do
+			}
 		};
 
 		InputGateQosReportingListener oldListener = inputGate
@@ -153,12 +175,27 @@ public class QosReportingListenerHelper {
 			final InputGateQosReportingListener second) {
 
 		return new InputGateQosReportingListener() {
-
 			@Override
 			public void recordReceived(int inputChannel,
 					AbstractTaggableRecord record) {
 				first.recordReceived(inputChannel, record);
 				second.recordReceived(inputChannel, record);
+			}
+
+			@Override
+			public void tryingToReadRecord() {
+				first.tryingToReadRecord();
+				second.tryingToReadRecord();
+			}
+
+			@Override
+			public void inputBufferConsumed(int channelIndex,
+					long bufferInterarrivalTimeNanos, int recordsReadFromBuffer) {
+				
+				first.inputBufferConsumed(channelIndex, bufferInterarrivalTimeNanos,
+						recordsReadFromBuffer);
+				second.inputBufferConsumed(channelIndex,
+						bufferInterarrivalTimeNanos, recordsReadFromBuffer);
 			}
 		};
 	}

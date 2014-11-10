@@ -1,12 +1,13 @@
 package eu.stratosphere.nephele.streaming.taskmanager.qosreporter;
 
+import eu.stratosphere.nephele.streaming.message.qosreport.EdgeStatistics;
+import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosReporterID;
+import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.sampling.BernoulliSampleDesign;
+import eu.stratosphere.nephele.types.AbstractTaggableRecord;
+
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.concurrent.CopyOnWriteArrayList;
-
-import eu.stratosphere.nephele.streaming.message.qosreport.EdgeStatistics;
-import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosReporterID;
-import eu.stratosphere.nephele.types.AbstractTaggableRecord;
 
 /**
  * A instance of this class keeps track of and reports on the Qos statistics of
@@ -59,6 +60,8 @@ public class OutputGateReporterManager {
 
 		private int recordsSinceLastTag;
 
+		public BernoulliSampleDesign bernoulliSampleDesign;
+
 		public OutputChannelChannelStatisticsReporter(
 				QosReporterID.Edge reporterID, int channelIndexInRuntimeGate) {
 
@@ -69,6 +72,8 @@ public class OutputGateReporterManager {
 			this.currentAmountTransmitted = 0;
 			this.recordsEmittedSinceLastReport = 0;
 			this.recordsSinceLastTag = 0;
+			this.bernoulliSampleDesign = new BernoulliSampleDesign(
+					OutputGateReporterManager.this.reportForwarder.getConfigCenter().getSamplingProbability() / 100.0);
 		}
 
 		/**
@@ -162,6 +167,7 @@ public class OutputGateReporterManager {
 			this.amountTransmittedAtLastReport = this.currentAmountTransmitted;
 			this.recordsEmittedSinceLastReport = 0;
 			this.outputBuffersSentSinceLastReport = 0;
+			this.bernoulliSampleDesign.reset();
 		}
 
 		private void sendReport(long now) {
@@ -189,9 +195,7 @@ public class OutputGateReporterManager {
 			this.recordsEmittedSinceLastReport++;
 			this.recordsSinceLastTag++;
 
-			if (this.recordsSinceLastTag >= OutputGateReporterManager.this.reportForwarder
-					.getConfigCenter().getTaggingInterval()) {
-
+			if (bernoulliSampleDesign.shouldSample()) {
 				this.tagRecord(record);
 				this.recordsSinceLastTag = 0;
 			} else {

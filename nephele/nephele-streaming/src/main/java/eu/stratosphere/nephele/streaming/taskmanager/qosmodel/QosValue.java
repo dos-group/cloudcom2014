@@ -1,78 +1,60 @@
 package eu.stratosphere.nephele.streaming.taskmanager.qosmodel;
 
-public class QosValue implements Comparable<QosValue> {
 
-	private static long nextFreeId = 0;
 
-	private long id;
+/**
+ * A Qos value represents a set of measurements ("samples") of some runtime
+ * aspect, e.g. a set of vertex latency measurements. A Qos value holds a timestamp, a mean
+ * and optionally the variance of a set of set of measurements.
+ * 
+ * @author Bjoern Lohrmann
+ * 
+ */
+public class QosValue {
 
-	private double value;
+	private final long timestamp;
+	
+	private final double mean;
+	
+	private final double variance;
 
-	private long timestamp;
+	private int weight;
 
-	public QosValue(double value, long timestamp) {
-		this.value = value;
+	public QosValue(double mean, long timestamp) {
+		this(mean, 1, timestamp);
+	}
+	
+	public QosValue(double mean, int weight, long timestamp) {
+		this.mean = mean;
+		this.variance = -1;
+		this.weight = weight;
 		this.timestamp = timestamp;
-		this.id = nextFreeId++;
 	}
-
-	public double getValue() {
-		return this.value;
-	}
-
-	public void setValue(double value) {
-		this.value = value;
+	
+	public QosValue(double mean, double variance, int weight, long timestamp) {
+		this.mean = mean;
+		this.variance = variance;
+		this.weight = weight;
+		this.timestamp = timestamp;
 	}
 
 	public long getTimestamp() {
 		return this.timestamp;
 	}
-
-	public void setTimestamp(long timestamp) {
-		this.timestamp = timestamp;
+	
+	public double getMean() {
+		return this.mean;
 	}
 
-	public long getId() {
-		return this.id;
+	public double getVariance() {
+		return this.variance;
+	}
+	
+	public boolean hasVariance() {
+		return this.variance != -1;
 	}
 
-	/**
-	 * Sorts first by value and then by id.
-	 */
-	@Override
-	public int compareTo(QosValue other) {
-		if (this.value > other.value) {
-			return 1;
-		} else if (this.value < other.value) {
-			return -1;
-		} else {
-			if (this.id > other.id) {
-				return 1;
-			} else if (this.id < other.id) {
-				return -1;
-			} else {
-				return 0;
-			}
-		}
+	public int getWeight() {
+		return weight;
 	}
-
-	@Override
-	public boolean equals(Object otherObj) {
-		if (otherObj instanceof QosValue) {
-			QosValue other = (QosValue) otherObj;
-			return other.id == this.id;
-		}
-		return false;
-	}
-
-	/*
-	 * (non-Javadoc)
-	 * 
-	 * @see java.lang.Object#hashCode()
-	 */
-	@Override
-	public int hashCode() {
-		return Long.valueOf(this.id).hashCode();
-	}
-
 }

@@ -46,7 +46,7 @@ public class SimpleScalingPolicy extends AbstractScalingPolicy {
 		Map<JobVertexID, GroupVertexCpuLoadSummary> summarizedCpuUtilizations = summarizeCpuUtilizations(
 				constraint, taskCpuLoads);
 		
-		for (SequenceElement<JobVertexID> seqElem : constraint.getSequence()) {
+		for (SequenceElement seqElem : constraint.getSequence()) {
 			if (seqElem.isEdge()) {
 
 				ExecutionGroupVertex senderGroupVertex = getExecutionGraph()
@@ -108,7 +108,7 @@ public class SimpleScalingPolicy extends AbstractScalingPolicy {
 		LOG.debug(scalingActions.toString());
 	}
 
-	private void addScaleUpAction(SequenceElement<JobVertexID> edge,
+	private void addScaleUpAction(SequenceElement edge,
 			QosConstraintSummary constraintSummary,
 			Map<JobVertexID, Integer> scalingActions) {
 
@@ -150,7 +150,7 @@ public class SimpleScalingPolicy extends AbstractScalingPolicy {
 		}
 	}
 
-	private void addScaleDownAction(SequenceElement<JobVertexID> edge,
+	private void addScaleDownAction(SequenceElement edge,
 			QosConstraintSummary constraintSummary, double consumerCpuUtil,
 			Map<JobVertexID, Integer> scalingActions) {
 

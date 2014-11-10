@@ -90,7 +90,7 @@ public class TaskChain {
 	}
 
 	public double getCPUUtilization() {
-		return this.aggregateCpuUtilization.getArithmeticMean();
+		return this.aggregateCpuUtilization.getMean();
 	}
 
 	public int getNumberOfChainedTasks() {

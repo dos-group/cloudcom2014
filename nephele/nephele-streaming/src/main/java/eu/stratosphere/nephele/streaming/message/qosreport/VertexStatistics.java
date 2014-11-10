@@ -19,46 +19,43 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-import org.apache.commons.lang3.builder.HashCodeBuilder;
-
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosReporterID;
+import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.sampling.Sample;
 
 /**
- * This class stores information about the latency as well as record
- * consumption and emission rate of a vertex (task).
+ * This class stores information about the latency as well as record consumption
+ * and emission rate of a vertex (task).
  * 
  * @author warneke, Bjoern Lohrmann
  */
 public final class VertexStatistics extends AbstractQosReportRecord {
 
 	private QosReporterID.Vertex reporterID;
-
-	private int counter;
-
-	private double vertexLatency;
-
+	private Sample vertexLatencyMillis;
 	private double recordsConsumedPerSec;
-
 	private double recordsEmittedPerSec;
+	private Sample recordInterArrivalTimeMillis;
 
-	/**
-	 * Constructs a new task latency object.
-	 * 
-	 * @param jobID
-	 *            the ID of the job this path latency information refers to
-	 * @param vertexID
-	 *            the ID of the vertex this task latency information refers to
-	 * @param taskLatency
-	 *            the task latency in milliseconds
-	 */
-	public VertexStatistics(final QosReporterID.Vertex reporterID,
-			final double vertexLatency, double recordsConsumedPerSec, double recordEmittedPerSec) {
+	public VertexStatistics(QosReporterID.Vertex reporterID,
+			Sample vertexLatencyMillis, double recordsConsumedPerSec,
+			double recordsEmittedPerSec, Sample recordInterArrivalTimeMillis) {
 
 		this.reporterID = reporterID;
-		this.vertexLatency = vertexLatency;
+		this.vertexLatencyMillis = vertexLatencyMillis;
 		this.recordsConsumedPerSec = recordsConsumedPerSec;
-		this.recordsEmittedPerSec = recordEmittedPerSec;
-		this.counter = 1;
+		this.recordsEmittedPerSec = recordsEmittedPerSec;
+		this.recordInterArrivalTimeMillis = recordInterArrivalTimeMillis;
+	}
+
+	public VertexStatistics(QosReporterID.Vertex reporterID,
+			double recordsEmittedPerSec) {
+		this(reporterID, null, -1, recordsEmittedPerSec, null);
+	}
+
+	public VertexStatistics(QosReporterID.Vertex reporterID,
+			double recordsConsumedPerSec, Sample recordInterArrivalTimeMillis) {
+		this(reporterID, null, recordsConsumedPerSec, -1,
+				recordInterArrivalTimeMillis);
 	}
 
 	/**
@@ -76,68 +73,56 @@ public final class VertexStatistics extends AbstractQosReportRecord {
 	 * 
 	 * @return the task latency in milliseconds
 	 */
-	public double getVertexLatency() {
-		if (vertexLatency == -1) {
-			return -1;
-		}
-
-		return this.vertexLatency / this.counter;
+	public Sample getVertexLatencyMillis() {
+		return this.vertexLatencyMillis;
 	}
 
 	public double getRecordsConsumedPerSec() {
-		if (recordsConsumedPerSec == -1) {
-			return -1;
-		}
-
-		return recordsConsumedPerSec / this.counter;
+		return recordsConsumedPerSec;
 	}
 
 	public double getRecordsEmittedPerSec() {
-		if (recordsEmittedPerSec == -1) {
-			return -1;
-		}
-
-		return recordsEmittedPerSec / this.counter;
+		return recordsEmittedPerSec;
 	}
 
-	public void add(VertexStatistics vertexStats) {
-		this.counter++;
-
-		if (vertexLatency != -1) {
-			this.vertexLatency += vertexStats.getVertexLatency();
-		}
-
-		if (recordsConsumedPerSec != -1) {
-			this.recordsConsumedPerSec += vertexStats
-					.getRecordsConsumedPerSec();
-		}
-
-		if (recordsEmittedPerSec != -1) {
-			this.recordsEmittedPerSec += vertexStats.getRecordsEmittedPerSec();
-		}
-	}
-
-	@Override
-	public boolean equals(Object otherObj) {
-		boolean isEqual = false;
-		if (otherObj instanceof VertexStatistics) {
-			VertexStatistics other = (VertexStatistics) otherObj;
-			isEqual = other.getReporterID().equals(this.getReporterID())
-					&& other.getVertexLatency() == this.getVertexLatency();
-		}
-
-		return isEqual;
-	}
-
-	/*
-	 * (non-Javadoc)
+	/**
+	 * Returns the task latency in milliseconds.
 	 * 
-	 * @see java.lang.Object#hashCode()
+	 * @return the task latency in milliseconds
 	 */
-	@Override
-	public int hashCode() {
-		return new HashCodeBuilder().append(this.vertexLatency)
-				.append(this.reporterID).toHashCode();
+	public Sample getInterArrivalTimeMillis() {
+		return recordInterArrivalTimeMillis;
+	}
+
+	public VertexStatistics fuseWith(VertexStatistics other) {
+
+		boolean hasInputGate = reporterID.getInputGateID() != null;
+		boolean hasOutputGate = reporterID.getOutputGateID() != null;
+		
+		
+		VertexStatistics fused = new VertexStatistics(reporterID,
+				vertexLatencyMillis, recordsConsumedPerSec,
+				recordsEmittedPerSec, recordInterArrivalTimeMillis);
+
+		if (hasInputGate) {
+			fused.recordInterArrivalTimeMillis = recordInterArrivalTimeMillis
+					.fuseWithDisjunctSample(other.getInterArrivalTimeMillis());
+
+			fused.recordsConsumedPerSec = (recordsConsumedPerSec + other
+					.getRecordsConsumedPerSec()) / 2;
+		}
+
+		if (hasOutputGate) {
+			fused.recordsEmittedPerSec = (recordsEmittedPerSec + other
+					.getRecordsEmittedPerSec()) / 2;
+		}
+
+		if (hasInputGate && hasOutputGate) {
+			fused.vertexLatencyMillis = vertexLatencyMillis
+					.fuseWithDisjunctSample(other.getVertexLatencyMillis());
+		}
+		
+		return fused;
 	}
 
 	/**
@@ -146,9 +131,22 @@ public final class VertexStatistics extends AbstractQosReportRecord {
 	@Override
 	public void write(final DataOutput out) throws IOException {
 		this.reporterID.write(out);
-		out.writeDouble(this.getVertexLatency());
-		out.writeDouble(this.getRecordsConsumedPerSec());
-		out.writeDouble(this.getRecordsEmittedPerSec());
+
+		boolean hasInputGate = reporterID.getInputGateID() != null;
+		boolean hasOutputGate = reporterID.getOutputGateID() != null;
+
+		if (hasInputGate) {
+			recordInterArrivalTimeMillis.write(out);
+			out.writeDouble(this.getRecordsConsumedPerSec());
+		}
+
+		if (hasOutputGate) {
+			out.writeDouble(this.getRecordsEmittedPerSec());
+		}
+
+		if (hasInputGate && hasOutputGate) {
+			vertexLatencyMillis.write(out);
+		}
 	}
 
 	/**
@@ -158,9 +156,23 @@ public final class VertexStatistics extends AbstractQosReportRecord {
 	public void read(final DataInput in) throws IOException {
 		this.reporterID = new QosReporterID.Vertex();
 		this.reporterID.read(in);
-		this.vertexLatency = in.readDouble();
-		this.recordsConsumedPerSec = in.readDouble();
-		this.recordsEmittedPerSec = in.readDouble();
-		this.counter = 1;
+
+		boolean hasInputGate = reporterID.getInputGateID() != null;
+		boolean hasOutputGate = reporterID.getOutputGateID() != null;
+
+		if (hasInputGate) {
+			recordInterArrivalTimeMillis = new Sample();
+			recordInterArrivalTimeMillis.read(in);
+			this.recordsConsumedPerSec = in.readDouble();
+		}
+
+		if (hasOutputGate) {
+			this.recordsEmittedPerSec = in.readDouble();
+		}
+
+		if (hasInputGate && hasOutputGate) {
+			vertexLatencyMillis = new Sample();
+			vertexLatencyMillis.read(in);
+		}
 	}
 }

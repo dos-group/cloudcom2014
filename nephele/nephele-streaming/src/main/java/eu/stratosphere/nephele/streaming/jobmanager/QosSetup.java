@@ -14,18 +14,6 @@
  **********************************************************************************************************************/
 package eu.stratosphere.nephele.streaming.jobmanager;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Set;
-
-import org.apache.log4j.Logger;
-
 import eu.stratosphere.nephele.executiongraph.ExecutionGraph;
 import eu.stratosphere.nephele.executiongraph.ExecutionVertexID;
 import eu.stratosphere.nephele.instance.InstanceConnectionInfo;
@@ -41,14 +29,24 @@ import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosGraphTraversalL
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosGroupVertex;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosManagerID;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosVertex;
+import org.apache.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
 
 /**
  * This class implements the algorithms from Section 3.4.2 from the following
  * paper Lohrmann,Warneke,Kao: "Nephele Streaming: Stream Processing under QoS
  * Constraints at Scale" (to appear in Journal of Cluster Computing, Springer
  * US).
- * 
- * 
+ *
  * @author Bjoern Lohrmann
  */
 public class QosSetup {
@@ -58,7 +56,7 @@ public class QosSetup {
 	private HashMap<LatencyConstraintID, QosGraph> qosGraphs;
 
 	private HashMap<InstanceConnectionInfo, TaskManagerQosSetup> taskManagerQosSetups;
-	
+
 	private HashSet<QosManagerID> qosManagerIds = new HashSet<QosManagerID>();
 
 	public QosSetup(HashMap<LatencyConstraintID, QosGraph> qosGraphs) {
@@ -70,11 +68,11 @@ public class QosSetup {
 		this.computeQosManagerRoles();
 		this.computeQosReporterRoles();
 	}
-	
+
 	public Map<InstanceConnectionInfo, TaskManagerQosSetup> getQosRoles() {
-		return taskManagerQosSetups; 
+		return taskManagerQosSetups;
 	}
-	
+
 	public Set<QosManagerID> getQosManagerIDs() {
 		return qosManagerIds;
 	}
@@ -104,14 +102,14 @@ public class QosSetup {
 
 			@Override
 			public void processQosVertex(QosVertex vertex,
-					SequenceElement<JobVertexID> sequenceElem) {
+					SequenceElement sequenceElem) {
 				QosSetup.this.addReporterForQosVertex(qosManager, vertex,
 						sequenceElem);
 			}
 
 			@Override
 			public void processQosEdge(QosEdge edge,
-					SequenceElement<JobVertexID> sequenceElem) {
+					SequenceElement sequenceElem) {
 				QosSetup.this.addReportersForQosEdge(qosManager, edge,
 						sequence, sequenceElem);
 			}
@@ -126,13 +124,15 @@ public class QosSetup {
 	}
 
 	private void addReporterForQosVertex(QosManagerRole qosManager,
-			QosVertex vertex, SequenceElement<JobVertexID> sequenceElem) {
+			QosVertex vertex, SequenceElement sequenceElem) {
 
 		InstanceConnectionInfo reporterInstance = vertex.getExecutingInstance();
 
 		QosReporterRole reporterRole = new QosReporterRole(vertex,
 				sequenceElem.getInputGateIndex(),
-				sequenceElem.getOutputGateIndex(), qosManager);
+				sequenceElem.getOutputGateIndex(),
+				sequenceElem.getSamplingStrategy(),
+				qosManager);
 
 		this.getOrCreateInstanceRoles(reporterInstance).addReporterRole(
 				reporterRole);
@@ -140,7 +140,7 @@ public class QosSetup {
 
 	private void addReportersForQosEdge(QosManagerRole qosManager,
 			QosEdge edge, JobGraphSequence sequence,
-			SequenceElement<JobVertexID> sequenceElem) {
+			SequenceElement sequenceElem) {
 
 		InstanceConnectionInfo srcReporterInstance = edge.getOutputGate()
 				.getVertex().getExecutingInstance();
@@ -161,13 +161,13 @@ public class QosSetup {
 		if (sequence.getLast() == sequenceElem) {
 			QosReporterRole dummyVertexReporter = new QosReporterRole(edge
 					.getInputGate().getVertex(),
-					sequenceElem.getInputGateIndex(), -1, qosManager);
+					sequenceElem.getInputGateIndex(), -1, sequenceElem.getSamplingStrategy(), qosManager);
 			this.getOrCreateInstanceRoles(targetReporterInstance)
 					.addReporterRole(dummyVertexReporter);
 		} else if (sequence.getFirst() == sequenceElem) {
 			QosReporterRole dummyVertexReporter = new QosReporterRole(edge
 					.getOutputGate().getVertex(), -1,
-					sequenceElem.getOutputGateIndex(), qosManager);
+					sequenceElem.getOutputGateIndex(), sequenceElem.getSamplingStrategy(), qosManager);
 			this.getOrCreateInstanceRoles(srcReporterInstance).addReporterRole(
 					dummyVertexReporter);
 		}
@@ -241,9 +241,8 @@ public class QosSetup {
 	 * the maximum worker count. If this is not a unique choice, the anchor
 	 * candidate is chosen with that has the (constrained) group edge with the
 	 * lowest number of channels.
-	 * 
-	 * @param qosGraph
-	 *            Provides the graph structure and the constraint.
+	 *
+	 * @param qosGraph Provides the graph structure and the constraint.
 	 * @return The chosen anchor vertex.
 	 */
 	private QosGroupVertex getAnchorVertex(QosGraph qosGraph) {
@@ -277,14 +276,11 @@ public class QosSetup {
 	 * For each anchor candidate (see anchor candidates), it finds the channel
 	 * count of the ingoing/outgoing edge on the constraint's sequence, that has
 	 * the lowest channel count.
-	 * 
-	 * @param qosGraph
-	 *            Provides the graph structure and constraint.
-	 * @param anchorCandidates
-	 *            Defines the group vertices that are anchor candidates.
-	 * @param channelCounts
-	 *            Accumulates the channel counts for the group vertices that are
-	 *            anchor candidates. This is part of the result.
+	 *
+	 * @param qosGraph         Provides the graph structure and constraint.
+	 * @param anchorCandidates Defines the group vertices that are anchor candidates.
+	 * @param channelCounts    Accumulates the channel counts for the group vertices that are
+	 *                         anchor candidates. This is part of the result.
 	 * @return the lowest channel count found among the anchor candidates.
 	 */
 	private int countChannelsOnSequence(QosGraph qosGraph,
@@ -292,7 +288,7 @@ public class QosSetup {
 			HashMap<JobVertexID, Integer> channelCounts) {
 
 		int minChannelCount = Integer.MAX_VALUE;
-		for (SequenceElement<JobVertexID> sequenceElem : qosGraph
+		for (SequenceElement sequenceElem : qosGraph
 				.getConstraints().iterator().next().getSequence()) {
 
 			if (sequenceElem.isEdge()) {
@@ -379,7 +375,7 @@ public class QosSetup {
 		}
 
 		Set<JobVertexID> anchorCandidates = new HashSet<JobVertexID>();
-		for (SequenceElement<JobVertexID> sequenceElem : qosGraph
+		for (SequenceElement sequenceElem : qosGraph
 				.getConstraints().iterator().next().getSequence()) {
 
 			if (sequenceElem.isVertex()) {

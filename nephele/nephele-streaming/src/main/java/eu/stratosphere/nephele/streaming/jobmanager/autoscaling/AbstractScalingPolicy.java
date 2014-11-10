@@ -75,7 +75,7 @@ public abstract class AbstractScalingPolicy {
 
 		Map<JobVertexID, GroupVertexCpuLoadSummary> toReturn = new HashMap<JobVertexID, GroupVertexCpuLoadSummary>();
 
-		for (SequenceElement<JobVertexID> seqElem : constraint.getSequence()) {
+		for (SequenceElement seqElem : constraint.getSequence()) {
 			if (seqElem.isEdge()) {
 
 				JobVertexID sourceVertexID = seqElem.getSourceVertexID();

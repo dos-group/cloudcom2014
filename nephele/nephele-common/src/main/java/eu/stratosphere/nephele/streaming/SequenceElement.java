@@ -18,50 +18,49 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-import eu.stratosphere.nephele.io.AbstractID;
 import eu.stratosphere.nephele.io.IOReadableWritable;
+import eu.stratosphere.nephele.jobgraph.JobVertexID;
 
 /**
  * A sequence is a series of connected vertices (tasks) and edges (channels).
  * This class models an element of such a sequence and thus models either a
  * vertex or an edge. To unambiguously define a sequence we needs to not only
- * inlude vertex IDs but also the indices of input/output gates. This class is
- * generic because depending on whether we define the sequence on the job or the
- * execution graph level, the class for vertex IDs is different.
- * 
+ * inlude vertex IDs but also the indices of input/output gates.
+ *
  * @author Bjoern Lohrmann
- * 
  */
-public class SequenceElement<T extends AbstractID> implements
+public class SequenceElement implements
 		IOReadableWritable {
 
-	private T sourceVertexID;
-	private T targetVertexID;
+	private JobVertexID sourceVertexID;
+	private JobVertexID targetVertexID;
 	private int inputGateIndex;
 	private int outputGateIndex;
 	private boolean isVertex;
-	private Class<T> idClass;
+	private SamplingStrategy samplingStrategy;
 	private int indexInSequence;
 	private String name;
 
 	public SequenceElement() {
 	}
 
-	@SuppressWarnings("unchecked")
-	public SequenceElement(T vertexID, int inputGateIndex, int outputGateIndex, int indexInSequence, String name) {
-		this.idClass = (Class<T>) vertexID.getClass();
+	public SequenceElement(JobVertexID vertexID, int inputGateIndex, int outputGateIndex, int indexInSequence, String name) {
+		this(vertexID, inputGateIndex, outputGateIndex, indexInSequence, name, SamplingStrategy.READ_READ);
+	}
+
+	public SequenceElement(JobVertexID vertexID, int inputGateIndex, int outputGateIndex, int indexInSequence, String name,
+			SamplingStrategy samplingStrategy) {
 		this.sourceVertexID = vertexID;
 		this.inputGateIndex = inputGateIndex;
 		this.outputGateIndex = outputGateIndex;
 		this.isVertex = true;
+		this.samplingStrategy = samplingStrategy;
 		this.indexInSequence = indexInSequence;
 		this.name = name;
 	}
 
-	@SuppressWarnings("unchecked")
-	public SequenceElement(T sourceVertexID, int outputGateIndex,
-			T targetVertexID, int inputGateIndex, int indexInSequence, String name) {
-		this.idClass = (Class<T>) sourceVertexID.getClass();
+	public SequenceElement(JobVertexID sourceVertexID, int outputGateIndex,
+			JobVertexID targetVertexID, int inputGateIndex, int indexInSequence, String name) {
 		this.sourceVertexID = sourceVertexID;
 		this.targetVertexID = targetVertexID;
 		this.inputGateIndex = inputGateIndex;
@@ -71,15 +70,15 @@ public class SequenceElement<T extends AbstractID> implements
 		this.name = name;
 	}
 
-	public T getVertexID() {
+	public JobVertexID getVertexID() {
 		return this.sourceVertexID;
 	}
 
-	public T getSourceVertexID() {
+	public JobVertexID getSourceVertexID() {
 		return this.sourceVertexID;
 	}
 
-	public T getTargetVertexID() {
+	public JobVertexID getTargetVertexID() {
 		return this.targetVertexID;
 	}
 
@@ -98,7 +97,15 @@ public class SequenceElement<T extends AbstractID> implements
 	public boolean isVertex() {
 		return this.isVertex;
 	}
-	
+
+	public SamplingStrategy getSamplingStrategy() {
+		return samplingStrategy;
+	}
+
+	public void setSamplingStrategy(SamplingStrategy samplingStrategy) {
+		this.samplingStrategy = samplingStrategy;
+	}
+
 	public boolean isEdge() {
 		return !this.isVertex;
 	}
@@ -109,14 +116,16 @@ public class SequenceElement<T extends AbstractID> implements
 
 	/*
 	 * (non-Javadoc)
-	 * 
+	 *
 	 * @see
 	 * eu.stratosphere.nephele.io.IOReadableWritable#write(java.io.DataOutput)
 	 */
 	@Override
 	public void write(DataOutput out) throws IOException {
 		out.writeBoolean(this.isVertex);
-		out.writeUTF(this.idClass.getName());
+		if (this.isVertex) {
+			out.writeUTF(samplingStrategy.toString());
+		}
 		this.sourceVertexID.write(out);
 		if (!this.isVertex) {
 			this.targetVertexID.write(out);
@@ -133,25 +142,22 @@ public class SequenceElement<T extends AbstractID> implements
 	 * @see
 	 * eu.stratosphere.nephele.io.IOReadableWritable#read(java.io.DataInput)
 	 */
-	@SuppressWarnings("unchecked")
 	@Override
 	public void read(DataInput in) throws IOException {
 		this.isVertex = in.readBoolean();
-		try {
-			this.idClass = (Class<T>) Class.forName(in.readUTF());
-			this.sourceVertexID = this.idClass.newInstance();
-			this.sourceVertexID.read(in);
-			if (!this.isVertex) {
-				this.targetVertexID = this.idClass.newInstance();
-				this.targetVertexID.read(in);
-			}
-			this.inputGateIndex = in.readInt();
-			this.outputGateIndex = in.readInt();
-			this.indexInSequence = in.readInt();
-			this.name = in.readUTF();
-		} catch (Exception e) {
-			throw new IOException("Error while deserializing SequenceElement",
-					e);
+		if (this.isVertex) {
+			this.samplingStrategy = SamplingStrategy.valueOf(in.readUTF());
 		}
+		
+		this.sourceVertexID = new JobVertexID();
+		this.sourceVertexID.read(in);
+		if (!this.isVertex) {
+			this.targetVertexID = new JobVertexID();
+			this.targetVertexID.read(in);
+		}
+		this.inputGateIndex = in.readInt();
+		this.outputGateIndex = in.readInt();
+		this.indexInSequence = in.readInt();
+		this.name = in.readUTF();
 	}
 }

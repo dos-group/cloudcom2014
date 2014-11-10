@@ -22,8 +22,8 @@ import org.apache.commons.logging.LogFactory;
 
 import eu.stratosphere.nephele.event.task.AbstractEvent;
 import eu.stratosphere.nephele.event.task.AbstractTaskEvent;
-import eu.stratosphere.nephele.io.InputGate;
 import eu.stratosphere.nephele.io.InputChannelResult;
+import eu.stratosphere.nephele.io.InputGate;
 import eu.stratosphere.nephele.io.RecordDeserializer;
 import eu.stratosphere.nephele.io.channels.AbstractInputChannel;
 import eu.stratosphere.nephele.io.channels.Buffer;
@@ -49,6 +49,10 @@ public abstract class AbstractByteBufferedInputChannel<T extends Record> extends
 	 * Buffer for the uncompressed (raw) data.
 	 */
 	private Buffer dataBuffer;
+	
+	private int recordsReadFromBuffer;
+	
+	private long bufferInterarrivalTimeNanos;
 
 	private ByteBufferedInputChannelBroker inputChannelBroker;
 	
@@ -138,16 +142,21 @@ public abstract class AbstractByteBufferedInputChannel<T extends Record> extends
 			} else {
 				// buffer case
 				this.dataBuffer = boe.getBuffer();
+				this.recordsReadFromBuffer = 0;
+				this.bufferInterarrivalTimeNanos = boe.getInterarrivalTimeNanos();
 			}
 		}
 
 		// get the next record form the buffer
 		T nextRecord = this.deserializer.readData(target, this.dataBuffer);
+		
+		if (nextRecord != null) {
+			recordsReadFromBuffer++;
+		}
 
 		// release the buffer if it is empty
 		if (this.dataBuffer.remaining() == 0) {
-			releasedConsumedReadBuffer(this.dataBuffer);
-			this.dataBuffer = null;
+			releaseConsumedDataBuffer();
 			return nextRecord == null ? InputChannelResult.NONE : InputChannelResult.LAST_RECORD_FROM_BUFFER;
 		} else {
 			if(nextRecord == null) {
@@ -165,15 +174,14 @@ public abstract class AbstractByteBufferedInputChannel<T extends Record> extends
 		} else {
 			return this.brokerAggreedToCloseChannel;
 		}
-	}
+	} 
 
 	@Override
 	public void close() throws IOException, InterruptedException {
 
 		this.deserializer.clear();
 		if (this.dataBuffer != null) {
-			releasedConsumedReadBuffer(this.dataBuffer);
-			this.dataBuffer = null;
+			releaseConsumedDataBuffer();
 		}
 
 		// This code fragment makes sure the isClosed method works in case the channel input has not been fully consumed
@@ -186,7 +194,7 @@ public abstract class AbstractByteBufferedInputChannel<T extends Record> extends
 						this.brokerAggreedToCloseChannel = true;
 					}
 				} else {
-					releasedConsumedReadBuffer(next.getBuffer());
+					next.getBuffer().recycleBuffer();
 				}
 			} else {
 				Thread.sleep(200);
@@ -199,19 +207,22 @@ public abstract class AbstractByteBufferedInputChannel<T extends Record> extends
 	}
 
 	
-	private void releasedConsumedReadBuffer(Buffer buffer) {
-		this.amountOfDataTransmitted += buffer.size();
-		buffer.recycleBuffer();
+	private void releaseConsumedDataBuffer() {
+		this.amountOfDataTransmitted += this.dataBuffer.size();
+		this.dataBuffer.recycleBuffer();
+		notifyDataUnitConsumed();
+		this.dataBuffer = null;
+		this.recordsReadFromBuffer = 0;
+		this.bufferInterarrivalTimeNanos = -1;
 	}
-	
 
 	public void setInputChannelBroker(ByteBufferedInputChannelBroker inputChannelBroker) {
 		this.inputChannelBroker = inputChannelBroker;
 	}
 
 
-	public void notifyGateThatInputIsAvailable() {
-		this.getInputGate().notifyRecordIsAvailable(getChannelIndex());
+	public long notifyGateThatInputIsAvailable() {
+		return this.getInputGate().notifyRecordIsAvailable(getChannelIndex());
 	}
 
 	
@@ -245,7 +256,7 @@ public abstract class AbstractByteBufferedInputChannel<T extends Record> extends
 	 * Notify the channel that a data unit has been consumed.
 	 */
 	public void notifyDataUnitConsumed() {
-		this.getInputGate().notifyDataUnitConsumed(getChannelIndex());
+		this.getInputGate().notifyDataUnitConsumed(getChannelIndex(), bufferInterarrivalTimeNanos, recordsReadFromBuffer);
 	}
 	
 	@Override

@@ -57,13 +57,6 @@ public final class EdgeStatistics extends AbstractQosReportRecord {
 	private double recordsPerSecond;
 
 	/**
-	 * Instances of this class may be used for aggregating other instances (see
-	 * {@see #add(ChannelThroughput)}). This counter keeps track of how many
-	 * other instances have been aggregated.
-	 */
-	private int counter;
-
-	/**
 	 * Default constructor for deserialization.
 	 */
 	public EdgeStatistics() {
@@ -93,7 +86,6 @@ public final class EdgeStatistics extends AbstractQosReportRecord {
 		this.outputBufferLifetime = outputBufferLifetime;
 		this.recordsPerBuffer = recordsPerBuffer;
 		this.recordsPerSecond = recordsPerSecond;
-		this.counter = 1;
 
 	}
 
@@ -103,7 +95,7 @@ public final class EdgeStatistics extends AbstractQosReportRecord {
 	 * @return the throughput of the output channel in MBit/s.
 	 */
 	public double getThroughput() {
-		return this.throughput / this.counter;
+		return this.throughput;
 	}
 
 	/**
@@ -114,7 +106,7 @@ public final class EdgeStatistics extends AbstractQosReportRecord {
 	 *         in millis.
 	 */
 	public double getOutputBufferLifetime() {
-		return this.outputBufferLifetime / this.counter;
+		return this.outputBufferLifetime;
 	}
 
 	/**
@@ -125,7 +117,7 @@ public final class EdgeStatistics extends AbstractQosReportRecord {
 	 *         channel.
 	 */
 	public double getRecordsPerBuffer() {
-		return this.recordsPerBuffer / this.counter;
+		return this.recordsPerBuffer;
 	}
 
 	/**
@@ -134,7 +126,7 @@ public final class EdgeStatistics extends AbstractQosReportRecord {
 	 * @return the number of records per second the task emits on the channel.
 	 */
 	public double getRecordsPerSecond() {
-		return this.recordsPerSecond / this.counter;
+		return this.recordsPerSecond;
 	}
 
 	/**
@@ -146,12 +138,12 @@ public final class EdgeStatistics extends AbstractQosReportRecord {
 		return this.reporterID;
 	}
 
-	public void add(EdgeStatistics channelThroughput) {
-		this.throughput += channelThroughput.throughput;
-		this.outputBufferLifetime += channelThroughput.outputBufferLifetime;
-		this.recordsPerBuffer += channelThroughput.recordsPerBuffer;
-		this.recordsPerSecond += channelThroughput.recordsPerSecond;
-		this.counter += channelThroughput.counter;
+	public EdgeStatistics fuseWith(EdgeStatistics other) {
+		return new EdgeStatistics(reporterID, 
+				(throughput + other.throughput) / 2, 
+				(outputBufferLifetime + other.outputBufferLifetime) / 2,
+				(recordsPerBuffer + other.recordsPerBuffer) / 2,
+				(recordsPerSecond + other.recordsPerSecond) / 2);
 	}
 
 	/**
@@ -177,32 +169,5 @@ public final class EdgeStatistics extends AbstractQosReportRecord {
 		this.outputBufferLifetime = in.readDouble();
 		this.recordsPerBuffer = in.readDouble();
 		this.recordsPerSecond = in.readDouble();
-		this.counter = 1;
-	}
-
-	@Override
-	public boolean equals(Object otherObj) {
-		boolean isEqual = false;
-		if (otherObj instanceof EdgeStatistics) {
-			EdgeStatistics other = (EdgeStatistics) otherObj;
-			isEqual = other.reporterID.equals(this.reporterID)
-					&& other.getThroughput() == this.getThroughput()
-					&& other.getOutputBufferLifetime() == this
-							.getOutputBufferLifetime()
-					&& other.getRecordsPerBuffer() == this
-							.getRecordsPerBuffer()
-					&& other.getRecordsPerSecond() == this
-							.getRecordsPerSecond();
-		}
-
-		return isEqual;
-	}
-
-	/**
-	 * {@inheritDoc}
-	 */
-	@Override
-	public int hashCode() {
-		return this.reporterID.hashCode();
 	}
 }
