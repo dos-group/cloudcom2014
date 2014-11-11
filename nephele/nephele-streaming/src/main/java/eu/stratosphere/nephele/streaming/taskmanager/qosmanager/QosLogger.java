@@ -18,12 +18,11 @@ import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
 
-import eu.stratosphere.nephele.configuration.GlobalConfiguration;
-import eu.stratosphere.nephele.plugins.PluginManager;
 import eu.stratosphere.nephele.streaming.JobGraphLatencyConstraint;
 import eu.stratosphere.nephele.streaming.JobGraphSequence;
 import eu.stratosphere.nephele.streaming.SequenceElement;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmanager.buffers.QosConstraintSummary;
+import eu.stratosphere.nephele.streaming.util.StreamPluginConfig;
 
 /**
  * This class is used by Qos managers to log aggregated Qos report data for a
@@ -32,14 +31,6 @@ import eu.stratosphere.nephele.streaming.taskmanager.qosmanager.buffers.QosConst
  * @author Bjoern Lohrmann
  */
 public class QosLogger {
-	/**
-	 * Provides access to the configuration entry which defines the log file
-	 * location.
-	 */
-	private static final String LOGFILE_PATTERN_KEY = PluginManager
-			.prefixWithPluginNamespace("streaming.qosmanager.logging.qos_statistics_filepattern");
-
-	private static final String DEFAULT_LOGFILE_PATTERN = "/tmp/qos_statistics_%s";
 
 	private BufferedWriter writer;
 
@@ -48,7 +39,7 @@ public class QosLogger {
 	public QosLogger(JobGraphLatencyConstraint constraint, long loggingInterval) throws IOException {
 		this.loggingInterval = loggingInterval;
 
-		String logFile = GlobalConfiguration.getString(LOGFILE_PATTERN_KEY, DEFAULT_LOGFILE_PATTERN);
+		String logFile = StreamPluginConfig.getQosStatisticsLogfilePattern();
 		if (logFile.contains("%s")) {
 			logFile = String.format(logFile, constraint.getID().toString());
 		}

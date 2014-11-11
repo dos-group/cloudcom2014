@@ -13,7 +13,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
-import eu.stratosphere.nephele.configuration.GlobalConfiguration;
 import eu.stratosphere.nephele.executiongraph.ExecutionGraph;
 import eu.stratosphere.nephele.executiongraph.ExecutionVertexID;
 import eu.stratosphere.nephele.jobgraph.JobID;
@@ -26,12 +25,12 @@ import eu.stratosphere.nephele.streaming.message.AbstractSerializableQosMessage;
 import eu.stratosphere.nephele.streaming.message.QosManagerConstraintSummaries;
 import eu.stratosphere.nephele.streaming.message.TaskCpuLoadChange;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmanager.QosLogger;
-import eu.stratosphere.nephele.streaming.taskmanager.qosmanager.QosManagerThread;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmanager.buffers.QosConstraintSummary;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosGraph;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosGroupEdge;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosGroupVertex;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosManagerID;
+import eu.stratosphere.nephele.streaming.util.StreamPluginConfig;
 
 public class ElasticTaskQosAutoScalingThread extends Thread {
 
@@ -79,8 +78,7 @@ public class ElasticTaskQosAutoScalingThread extends Thread {
 				qosLoggers.put(constraintID,
 							new QosLogger(
 								constraint,
-								GlobalConfiguration.getLong(QosManagerThread.QOSMANAGER_ADJUSTMENTINTERVAL_KEY,
-										QosManagerThread.DEFAULT_ADJUSTMENTINTERVAL)));
+								StreamPluginConfig.getAdjustmentIntervalMillis()));
 			} catch (IOException e) {
 				LOG.error("Exception in QosLogger", e);
 			}
@@ -163,9 +161,7 @@ public class ElasticTaskQosAutoScalingThread extends Thread {
 
 					timeOfLastScaling = System.currentTimeMillis();
 					timeOfNextScaling = timeOfLastScaling
-							+ GlobalConfiguration
-									.getLong(QosManagerThread.QOSMANAGER_ADJUSTMENTINTERVAL_KEY,
-											QosManagerThread.DEFAULT_ADJUSTMENTINTERVAL);
+							+ StreamPluginConfig.getAdjustmentIntervalMillis();
 				}
 			}
 		} catch (InterruptedException e) {
