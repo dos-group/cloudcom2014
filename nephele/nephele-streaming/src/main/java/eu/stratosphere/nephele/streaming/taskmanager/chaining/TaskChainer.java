@@ -15,11 +15,16 @@
 package eu.stratosphere.nephele.streaming.taskmanager.chaining;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.log4j.Logger;
 
+import eu.stratosphere.nephele.executiongraph.ExecutionVertexID;
+import eu.stratosphere.nephele.streaming.message.action.CandidateChainConfig;
 import eu.stratosphere.nephele.streaming.taskmanager.profiling.TaskInfo;
 import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.QosReporterConfigCenter;
 
@@ -27,6 +32,7 @@ import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.QosReporterConf
  * @author Bjoern Lohrmann
  */
 public class TaskChainer {
+	private final static Logger LOG = Logger.getLogger(TaskChainer.class);
 
 	/**
 	 * Holds a list adjacent chains. The order in this list corresponds to their
@@ -34,6 +40,8 @@ public class TaskChainer {
 	 * undefined number of user threads created by the user code in the tasks.
 	 */
 	private final ArrayList<TaskChain> chains = new ArrayList<TaskChain>();
+
+	private final ArrayList<TaskInfo> chainingCandidates;
 
 	private final ExecutorService backgroundWorkers;
 
@@ -43,6 +51,7 @@ public class TaskChainer {
 			ExecutorService backgroundWorkers,
 			QosReporterConfigCenter configCenter) {
 
+		this.chainingCandidates = new ArrayList<TaskInfo>(chainingCandidates);
 		this.backgroundWorkers = backgroundWorkers;
 		this.configCenter = configCenter;
 
@@ -51,19 +60,37 @@ public class TaskChainer {
 		}
 	}
 
-	public void collectCpuUtilizations() {
-		for (TaskChain chain : this.chains) {
-			chain.measureCPUUtilizationIfPossible();
-		}
-	}
-
 	public void attemptDynamicChaining() {
 		if (!areChainsReadyForDynamicChaining()) {
 			return;
 		}
 
+		if (LOG.isDebugEnabled()) {
+			dumpChains();
+		}
+
 		mergeChainsIfPossible();
 		splitChainsIfNecessary();
+	}
+
+	private void dumpChains() {
+		StringBuilder message = new StringBuilder();
+		message.append("Task chaining attemp with chains: \n");
+
+		for (int i = 0; i < this.chains.size(); i++) {
+			TaskChain chain = this.chains.get(i);
+			double unchainedUtilizations[] = new double[chain.getNumberOfChainedTasks()];
+			for (int j = 0; j < chain.getNumberOfChainedTasks(); j++) {
+				unchainedUtilizations[j] = chain.getTask(j).getUnchainedCpuUtilization();
+			}
+
+			message.append(i).append(": ").append(this.chains.get(i))
+					.append(" (cpu = ")
+					.append(this.chains.get(i).getCPUUtilization()).append(", unchained cpu = ")
+					.append(Arrays.toString(unchainedUtilizations))
+					.append(").\n");
+		}
+		LOG.debug(message);
 	}
 
 	/**
@@ -207,13 +234,41 @@ public class TaskChainer {
 			if (!flow.hasCPUUtilizationMeasurements()) {
 				return false;
 			}
+
+			if (!flow.allTasksAreInRunningState()) {
+				return false;
+			}
 		}
 		return true;
 	}
 
-	public void measureCPUUtilizations() {
-		for (TaskChain chain : this.chains) {
-			chain.measureCPUUtilizationIfPossible();
+	/**
+	 * Reset (unchain) each edge and announce chain status.
+	 */
+	public void resetAndAnnounceAllChaines() throws InterruptedException {
+		ChainingUtil.announceAllTasksUnchained(chains, configCenter);
+
+		this.chains.clear();
+		for (TaskInfo task : chainingCandidates) {
+			this.chains.add(new TaskChain(task));
 		}
+	}
+
+	public boolean containsTask(ExecutionVertexID vertexID) {
+		for (TaskInfo task : this.chainingCandidates) {
+			if (task.getVertexID().equals(vertexID))
+				return true;
+		}
+
+		return false;
+	}
+
+	public CandidateChainConfig toCandidateChainConfig() {
+		LinkedList<ExecutionVertexID> verticies = new LinkedList<ExecutionVertexID>();
+
+		for (TaskInfo task : this.chainingCandidates)
+			verticies.add(task.getVertexID());
+
+		return new CandidateChainConfig(verticies);
 	}
 }
