@@ -12,7 +12,7 @@ import eu.stratosphere.nephele.streaming.JobGraphLatencyConstraint;
 import eu.stratosphere.nephele.streaming.LatencyConstraintID;
 import eu.stratosphere.nephele.streaming.SequenceElement;
 import eu.stratosphere.nephele.streaming.message.TaskCpuLoadChange;
-import eu.stratosphere.nephele.streaming.taskmanager.qosmanager.buffers.QosConstraintSummary;
+import eu.stratosphere.nephele.streaming.taskmanager.qosmanager.QosConstraintSummary;
 
 /**
  * Abstract superclass of scaling policies providing commonly used

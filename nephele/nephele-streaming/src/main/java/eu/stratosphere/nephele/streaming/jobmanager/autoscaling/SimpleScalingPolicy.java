@@ -16,7 +16,8 @@ import eu.stratosphere.nephele.streaming.SequenceElement;
 import eu.stratosphere.nephele.streaming.message.CpuLoadClassifier;
 import eu.stratosphere.nephele.streaming.message.CpuLoadClassifier.CpuLoad;
 import eu.stratosphere.nephele.streaming.message.TaskCpuLoadChange;
-import eu.stratosphere.nephele.streaming.taskmanager.qosmanager.buffers.QosConstraintSummary;
+import eu.stratosphere.nephele.streaming.taskmanager.qosmanager.QosConstraintSummary;
+import eu.stratosphere.nephele.streaming.taskmanager.qosmanager.QosGroupEdgeSummary;
 
 /**
  * Scaling policy that scales individual group vertices based on their CPU load
@@ -58,15 +59,12 @@ public class SimpleScalingPolicy extends AbstractScalingPolicy {
 					continue;
 				}
 
-				double[][] memberStats = constraintSummary
-						.getAggregatedMemberStatistics();
-				double recordSendRate = memberStats[seqElem
-						.getIndexInSequence()][2]
+				QosGroupEdgeSummary edgeSummary = constraintSummary.getGroupEdgeSummary(seqElem.getIndexInSequence());
+				double recordSendRate = edgeSummary.getMeanEmissionRate()
 						* getNoOfRunningTasks(senderGroupVertex);
-				double recordConsumptionRate = memberStats[seqElem
-						.getIndexInSequence()][3]
+				double recordConsumptionRate = edgeSummary
+						.getMeanConsumptionRate()
 						* getNoOfRunningTasks(consumerGroupVertex);
-
 				
 				GroupVertexCpuLoadSummary cpuLoadSummary = summarizedCpuUtilizations
 						.get(seqElem.getTargetVertexID());
@@ -94,13 +92,13 @@ public class SimpleScalingPolicy extends AbstractScalingPolicy {
 					// not to scale out and just wait until the queued data has
 					// been processed.
 
-					addScaleUpAction(seqElem, constraintSummary, scalingActions);
+					addScaleUpAction(seqElem, edgeSummary, scalingActions);
 
 				} else if (cpuLoadSummary.getAvgCpuLoad() == CpuLoad.LOW
 						&& cpuLoadSummary.getHighs() < 2
 						&& sendConsumeRatio >= CpuLoadClassifier.HIGH_THRESHOLD_PERCENT / 100.0) {
 
-					addScaleDownAction(seqElem, constraintSummary,
+					addScaleDownAction(seqElem, edgeSummary,
 							cpuLoadSummary.getAvgCpuUtilization() / 100.0, scalingActions);
 				}
 			}
@@ -109,7 +107,7 @@ public class SimpleScalingPolicy extends AbstractScalingPolicy {
 	}
 
 	private void addScaleUpAction(SequenceElement edge,
-			QosConstraintSummary constraintSummary,
+			QosGroupEdgeSummary edgeSummary,
 			Map<JobVertexID, Integer> scalingActions) {
 
 		// midpoint between medium and high cpu load thresholds
@@ -118,17 +116,12 @@ public class SimpleScalingPolicy extends AbstractScalingPolicy {
 		int noOfSenderTasks = getNoOfRunningTasks(getExecutionGraph()
 				.getExecutionGroupVertex(edge.getSourceVertexID()));
 
-		double[] edgeStats = constraintSummary.getAggregatedMemberStatistics()[edge
-				.getIndexInSequence()];
-		double avgSendRate = edgeStats[2];
-		double avgConsumeRate = edgeStats[3];
-
 		// compute new number of consumer tasks so that future cpu utilization
 		// will be close to targetCpuUtil (assuming perfect load balancing,
 		// constant send rate and constant consumer capacity :-P ).
 		int newNoOfConsumerTasks = (int) Math
-				.ceil((avgSendRate * noOfSenderTasks)
-						/ (avgConsumeRate * targetCpuUtil));
+				.ceil((edgeSummary.getMeanEmissionRate() * noOfSenderTasks)
+						/ (edgeSummary.getMeanConsumptionRate() * targetCpuUtil));
 
 		LOG.debug(String.format("SCALE-UP: newConsumers (before ulimits): %d\n", newNoOfConsumerTasks));
 		
@@ -151,7 +144,7 @@ public class SimpleScalingPolicy extends AbstractScalingPolicy {
 	}
 
 	private void addScaleDownAction(SequenceElement edge,
-			QosConstraintSummary constraintSummary, double consumerCpuUtil,
+			QosGroupEdgeSummary edgeSummary, double consumerCpuUtil,
 			Map<JobVertexID, Integer> scalingActions) {
 
 		// midpoint between medium and high cpu load thresholds
@@ -162,8 +155,7 @@ public class SimpleScalingPolicy extends AbstractScalingPolicy {
 
 		int noOfConsumerTasks = getNoOfRunningTasks(consumer);
 
-		double avgConsumeRate = constraintSummary
-				.getAggregatedMemberStatistics()[edge.getIndexInSequence()][3];
+		double avgConsumeRate = edgeSummary.getMeanConsumptionRate();
 
 		double loadFactor = (consumerCpuUtil * noOfConsumerTasks)
 				/ avgConsumeRate;
