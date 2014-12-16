@@ -32,4 +32,6 @@ public interface InputGateQosReportingListener {
 
 	public void inputBufferConsumed(int channelIndex,
 			long bufferInterarrivalTimeNanos, int recordsReadFromBuffer);
+
+	public void setChained(boolean isChained);
 }

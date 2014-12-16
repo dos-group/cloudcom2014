@@ -578,6 +578,7 @@ public class QosModel {
 
 		int activeConsumerVertices = 0;
 		double consumptionRateSum = 0;
+		int unchainedInputGates = 0;
 		double interarrivalTimeSum = 0;
 		double interarrivalTimeVarianceSum = 0;
 
@@ -593,10 +594,14 @@ public class QosModel {
 				activeConsumerVertices++;
 				consumptionRateSum += qosData
 						.getRecordsConsumedPerSec(inputGateIndex);
-				interarrivalTimeSum += qosData
-						.getInterArrivalTimeInMillis(inputGateIndex);
-				interarrivalTimeVarianceSum += qosData
-						.getInterArrivalTimeVarianceInMillis(inputGateIndex);
+				
+				if (!qosData.hasChainedInputGates(inputGateIndex)) {
+					unchainedInputGates++;
+					interarrivalTimeSum += qosData
+							.getInterArrivalTimeInMillis(inputGateIndex);
+					interarrivalTimeVarianceSum += qosData
+							.getInterArrivalTimeVarianceInMillis(inputGateIndex);
+				}
 			}
 
 			for (QosEdge ingoingEdge : memberVertex
@@ -623,12 +628,19 @@ public class QosModel {
 			groupEdgeSummary.setActiveConsumerVertices(activeConsumerVertices);
 			groupEdgeSummary.setMeanConsumptionRate(consumptionRateSum
 					/ activeConsumerVertices);
-			groupEdgeSummary
-					.setMeanConsumerVertexInterarrivalTime(interarrivalTimeSum
-							/ activeConsumerVertices);
-			groupEdgeSummary
-					.setMeanConsumerVertexInterarrivalTimeVariance(interarrivalTimeVarianceSum
-							/ activeConsumerVertices);
+			
+			if (unchainedInputGates > 0) {
+				groupEdgeSummary
+						.setMeanConsumerVertexInterarrivalTime(interarrivalTimeSum
+								/ unchainedInputGates);
+				groupEdgeSummary
+						.setMeanConsumerVertexInterarrivalTimeVariance(interarrivalTimeVarianceSum
+								/ unchainedInputGates);
+			} else {
+				groupEdgeSummary.setMeanConsumerVertexInterarrivalTime(0);
+				groupEdgeSummary.setMeanConsumerVertexInterarrivalTimeVariance(0);
+			}
+
 			setSourceGroupVertexEmissionRate(seqElem, inactivityThresholdTime,
 					groupEdgeSummary);
 		}

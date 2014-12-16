@@ -56,6 +56,11 @@ public class QosReportingListenerHelper {
 					long bufferInterarrivalTimeNanos, int recordsReadFromBuffer) {
 				vertexStatsManager.inputBufferConsumed(gateIndex, channelIndex, bufferInterarrivalTimeNanos, recordsReadFromBuffer);
 			}
+
+			@Override
+			public void setChained(boolean isChained) {
+				vertexStatsManager.setInpuGateChained(gateIndex, isChained);
+			}
 		};
 		InputGateQosReportingListener oldListener = inputGate
 				.getQosReportingListener();
@@ -84,6 +89,11 @@ public class QosReportingListenerHelper {
 			public void outputBufferSent(int outputChannelIndex,
 					long currentAmountTransmitted) {
 				// do nothing
+			}
+
+			@Override
+			public void setChained(boolean isChained) {
+				vertexStatsManager.setOutpuGateChained(gateIndex, isChained);
 			}
 		};
 
@@ -125,6 +135,11 @@ public class QosReportingListenerHelper {
 					long bufferInterarrivalTimeNanos, int recordsReadFromBuffer) {
 				// nothing to do
 			}
+
+			@Override
+			public void setChained(boolean isChained) {
+				// nothing to do
+			}
 		};
 
 		InputGateQosReportingListener oldListener = inputGate
@@ -156,6 +171,11 @@ public class QosReportingListenerHelper {
 					AbstractTaggableRecord record) {
 				gateReporterManager.recordEmitted(runtimeGateChannelIndex,
 						record);
+			}
+
+			@Override
+			public void setChained(boolean isChained) {
+				// nothing to do
 			}
 		};
 
@@ -197,6 +217,12 @@ public class QosReportingListenerHelper {
 				second.inputBufferConsumed(channelIndex,
 						bufferInterarrivalTimeNanos, recordsReadFromBuffer);
 			}
+
+			@Override
+			public void setChained(boolean isChained) {
+				first.setChained(isChained);
+				second.setChained(isChained);
+			}
 		};
 	}
 
@@ -219,6 +245,12 @@ public class QosReportingListenerHelper {
 
 				first.recordEmitted(outputChannel, record);
 				second.recordEmitted(outputChannel, record);
+			}
+
+			@Override
+			public void setChained(boolean isChained) {
+				first.setChained(isChained);
+				second.setChained(isChained);
 			}
 		};
 	}

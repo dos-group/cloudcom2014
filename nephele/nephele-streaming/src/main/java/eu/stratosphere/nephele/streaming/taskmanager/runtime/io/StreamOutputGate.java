@@ -116,6 +116,7 @@ public final class StreamOutputGate<T extends Record> extends
 			} else if (action instanceof EstablishNewChainAction) {
 				this.establishChain((EstablishNewChainAction) action);
 			} else if (action instanceof DropCurrentChainAction) {
+				reportChainState(false);
 				dropCurrentChain();
 			}
 		}
@@ -152,14 +153,25 @@ public final class StreamOutputGate<T extends Record> extends
 		if (getGateState() == GateState.RUNNING) {
 			this.streamChain = streamChain;
 			this.flush();
+			reportChainState(true); // flush does not take the chain => report new chain after flush
 
 			for (RuntimeChainLink chainLink : streamChain.getChainLinks()
-					.subList(1, streamChain.getChainLinks().size())) {
+					.subList(1, streamChain.getChainLinks().size() - 1)) {
 
 				chainLink.getInputGate().haltTaskThreadIfNecessary();
+				chainLink.getInputGate().reportChainState(true);
 				chainLink.getOutputGate().flush();
 				chainLink.getOutputGate().streamChain = null;
+				chainLink.getOutputGate().reportChainState(true);
 			}
+
+			// special link: last output gate is not really part of this chain
+			RuntimeChainLink lastChainLink =
+					streamChain.getChainLinks().get(streamChain.getChainLinks().size() - 1);
+			lastChainLink.getInputGate().haltTaskThreadIfNecessary();
+			lastChainLink.getInputGate().reportChainState(true);
+			lastChainLink.getOutputGate().streamChain = null;
+			lastChainLink.getOutputGate().reportChainState(false);
 
 			streamChain.signalTasksAreSuccessfullyChained();
 			LOG.info("Established chain " + streamChain);
@@ -179,6 +191,11 @@ public final class StreamOutputGate<T extends Record> extends
 			AbstractTaggableRecord taggableRecord = (AbstractTaggableRecord) record;
 			this.qosCallback.recordEmitted(outputChannel, taggableRecord);
 		}
+	}
+
+	public void reportChainState(boolean isChained) {
+		if (this.qosCallback != null)
+			this.qosCallback.setChained(isChained);
 	}
 
 	/**
@@ -240,10 +257,14 @@ public final class StreamOutputGate<T extends Record> extends
 
 		if (oldChain != null) {
 			dropCurrentChain();
+			reportChainState(false);
 
 			for (RuntimeChainLink chainLink : oldChain.getChainLinks().subList(
 					1, oldChain.getChainLinks().size())) {
 
+				chainLink.getOutputGate().dropCurrentChain();
+				chainLink.getOutputGate().reportChainState(false);
+				chainLink.getInputGate().reportChainState(false);
 				chainLink.getInputGate().wakeUpTaskThreadIfNecessary();
 			}
 		}

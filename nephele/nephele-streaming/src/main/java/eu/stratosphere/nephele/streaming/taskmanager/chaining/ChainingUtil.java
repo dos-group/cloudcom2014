@@ -131,9 +131,13 @@ public class ChainingUtil {
 			RuntimeChain rightRuntimeChain = assembleRuntimeChain(rightChain);
 			rightRuntimeChain.getFirstOutputGate().enqueueQosAction(
 					new EstablishNewChainAction(rightRuntimeChain));
+			rightRuntimeChain.getFirstInputGate().reportChainState(false); // this gate does not belong to the chain!
 			rightRuntimeChain.getFirstInputGate().wakeUpTaskThreadIfNecessary();
 			rightRuntimeChain.waitUntilTasksAreChained();
 		} else {
+			// unchain task
+			rightChain.getTask(0).getStreamTaskEnvironment().getInputGate(0)
+					.reportChainState(false);
 			rightChain.getTask(0).getStreamTaskEnvironment().getInputGate(0)
 					.wakeUpTaskThreadIfNecessary();
 		}

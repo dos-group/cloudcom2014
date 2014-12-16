@@ -37,6 +37,8 @@ public final class RuntimeChain {
 
 	private Queue<Record> nextRecords = new ArrayDeque<Record>();
 
+	private Queue<Record> emittedRecords = new ArrayDeque<Record>();
+
 	private Queue<Record> records = new ArrayDeque<Record>();
 
 	public RuntimeChain(List<RuntimeChainLink> chainLinks) {
@@ -69,15 +71,23 @@ public final class RuntimeChain {
 			IocTask iocTask = chainLink.getIocTask();
 
 			Record nextRecord;
+			Record tempRecord;
+
 			while ((nextRecord = nextRecords.poll()) != null) {
 				inputGate.reportRecordReceived(nextRecord, 0);
-				iocTask.invokeChainableMethod(nextRecord, records);
+				iocTask.invokeChainableMethod(nextRecord, emittedRecords);
+
+				// count statistic between "received" and "try to read"
+				while((tempRecord = emittedRecords.poll()) != null) {
+					outputGate.reportRecordEmitted(tempRecord, 0);
+					records.offer(tempRecord);
+				}
+
+				inputGate.reportTryingToRead();
 			}
 
 			// copy all records for the next iteration
-			Record tempRecord;
 			while ((tempRecord = records.poll()) != null) {
-				outputGate.reportRecordEmitted(tempRecord, 0);
 				nextRecords.offer(RecordUtils.createCopy(tempRecord));
 			}
 		}
@@ -91,6 +101,7 @@ public final class RuntimeChain {
 		while ((lastRecord = nextRecords.poll()) != null) {
 			inputGate.reportRecordReceived(lastRecord, 0);
 			iocTask.invokeChainableMethod(lastRecord);
+			inputGate.reportTryingToRead();
 		}
 	}
 

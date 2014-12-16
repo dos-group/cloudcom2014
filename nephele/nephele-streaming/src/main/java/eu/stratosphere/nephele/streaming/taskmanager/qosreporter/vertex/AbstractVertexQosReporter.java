@@ -13,6 +13,8 @@ public abstract class AbstractVertexQosReporter implements VertexQosReporter {
 	
 	private final ReportTimer reportTimer;
 
+	private boolean igIsChained;
+
 	private long igReceiveCounterAtLastReport;
 	private final InputGateReceiveCounter igReceiveCounter;
 	private final InputGateInterArrivalTimeSampler igInterarrivalTimeSampler;
@@ -34,6 +36,8 @@ public abstract class AbstractVertexQosReporter implements VertexQosReporter {
 		this.reporterID = reporterID;
 		this.reportTimer = reportTimer;
 		
+		this.igIsChained = false;
+
 		this.runtimeInputGateIndex = runtimeInputGateIndex;
 		this.runtimeOutputGateIndex = runtimeOutputGateIndex;
 
@@ -69,7 +73,8 @@ public abstract class AbstractVertexQosReporter implements VertexQosReporter {
 	}
 	
 	public boolean canSendReport() {
-		return igInterarrivalTimeSampler.hasSample() && reportTimer.reportIsDue();
+		return reportTimer.reportIsDue()
+				&& (igIsChained || igInterarrivalTimeSampler.hasSample());
 	}
 	
 	public void sendReport(long now, 
@@ -84,12 +89,12 @@ public abstract class AbstractVertexQosReporter implements VertexQosReporter {
 					igInterReadTimeMillis,
 					getRecordsConsumedPerSec(secsPassed),
 					getRecordsEmittedPerSec(secsPassed),
-					igInterarrivalTimeSampler.drawSampleAndReset(now).rescale(0.001));
+					igIsChained ? null : igInterarrivalTimeSampler.drawSampleAndReset(now).rescale(0.001));
 		} else if (reporterID.hasInputGateID()) {
 			toSend = new VertexStatistics(reporterID,
 					igInterReadTimeMillis,
 					getRecordsConsumedPerSec(secsPassed),
-					igInterarrivalTimeSampler.drawSampleAndReset(now).rescale(0.001));
+					igIsChained ? null : igInterarrivalTimeSampler.drawSampleAndReset(now).rescale(0.001));
 		} else {
 			toSend = new VertexStatistics(reporterID,
 					getRecordsEmittedPerSec(secsPassed));
@@ -117,6 +122,16 @@ public abstract class AbstractVertexQosReporter implements VertexQosReporter {
 			ogEmitCounterAtLastReport = ogEmitCounter.getEmitted();
 		}
 		return recordEmittedPerSec;
+	}
+
+	@Override
+	public void setInputGateChained(boolean isChained) {
+		this.igIsChained = isChained;
+	}
+
+	@Override
+	public void setOutputGateChained(boolean isChained) {
+		// nothing to do
 	}
 
 	@Override

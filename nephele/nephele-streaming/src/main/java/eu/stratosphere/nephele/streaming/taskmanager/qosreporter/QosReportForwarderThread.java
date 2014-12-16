@@ -178,7 +178,9 @@ public class QosReportForwarderThread extends Thread {
 					} else {
 						this.sendToRemote(currentReport);
 					}
-				}
+//					LOG.warn("Sending report!");
+				} else
+					LOG.warn("No report...");
 				currentReport.shiftToNextReportingInterval();
 			}
 		} catch (InterruptedException e) {

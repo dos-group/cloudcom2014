@@ -17,4 +17,8 @@ public interface VertexQosReporter {
 	public int getRuntimeOutputGateIndex();
 	
 	public ReportTimer getReportTimer();
+
+	public void setInputGateChained(boolean isChained);
+
+	public void setOutputGateChained(boolean isChained);
 }

@@ -23,6 +23,8 @@ public class ReadReadReporter implements VertexQosReporter {
 
 	private final int runtimeOutputGateIndex;
 
+	private boolean igIsChained;
+
 	public ReadReadReporter(QosReportForwarderThread reportForwarder,
 			QosReporterID.Vertex reporterID,
 			ReportTimer reportTimer,
@@ -38,6 +40,8 @@ public class ReadReadReporter implements VertexQosReporter {
 		this.runtimeInputGateIndex = runtimeInputGateIndex;
 		this.runtimeOutputGateIndex = runtimeOutputGateIndex;
 
+		this.igIsChained = false;
+
 		emitCounterAtLastReport = emitCounter.getEmitted();
 		this.outputGateEmitCounter = emitCounter;
 	}
@@ -47,6 +51,11 @@ public class ReadReadReporter implements VertexQosReporter {
 			Sample interarrivalTimeMillis,
 			double recordsConsumedPerSec) {
 		
+		if (igIsChained)
+			throw new RuntimeException("sendReport called with interarrival time in chained mode. This is a bug.");
+		else if(interarrivalTimeMillis == null)
+			throw new RuntimeException("sendReport called without interarrival time in unchained mode. This is a bug.");
+
 		double secsPassed = (now - reportTimer.getTimeOfLastReport()) / 1000.0;
 		
 		VertexStatistics toSend = new VertexStatistics(reporterID,
@@ -54,6 +63,23 @@ public class ReadReadReporter implements VertexQosReporter {
 					recordsConsumedPerSec,
 					getRecordsEmittedPerSec(secsPassed),
 					interarrivalTimeMillis);
+		reportForwarder.addToNextReport(toSend);
+	}
+
+	public void sendReport(long now,
+			Sample vertexLatencyMillis,
+			double recordsConsumedPerSec) {
+
+		if (!igIsChained)
+			throw new RuntimeException("sendReport called with wrong arguments in unchained mode. This is a bug.");
+
+		double secsPassed = (now - reportTimer.getTimeOfLastReport()) / 1000.0;
+
+		VertexStatistics toSend = new VertexStatistics(reporterID,
+					vertexLatencyMillis,
+					recordsConsumedPerSec,
+					getRecordsEmittedPerSec(secsPassed),
+					null);
 		reportForwarder.addToNextReport(toSend);
 	}
 
@@ -65,6 +91,17 @@ public class ReadReadReporter implements VertexQosReporter {
 			emitCounterAtLastReport = outputGateEmitCounter.getEmitted();
 		}
 		return recordEmittedPerSec;
+	}
+
+	@Override
+	public void setInputGateChained(boolean isChained) {
+		this.igIsChained = isChained;
+	}
+
+	@Override
+	public void setOutputGateChained(boolean isChained) {
+		throw new RuntimeException(
+				"Method should never be invoked. This is bug.");
 	}
 
 	@Override

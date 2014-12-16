@@ -161,6 +161,11 @@ public final class StreamInputGate<T extends Record> extends
 		}
 	}
 
+	public void reportChainState(boolean isChained) {
+		if (this.qosCallback != null)
+			this.qosCallback.setChained(isChained);
+	}
+
 	/**
 	 * This method should only be called if this input gate is inside a chain
 	 * and the task thread (doing this call) should therefore be halted (unless

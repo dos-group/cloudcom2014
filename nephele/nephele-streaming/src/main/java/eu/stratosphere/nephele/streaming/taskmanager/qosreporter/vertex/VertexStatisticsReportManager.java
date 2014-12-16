@@ -238,4 +238,18 @@ public class VertexStatisticsReportManager {
 					bufferInterarrivalTimeNanos, recordsReadFromBuffer);
 		}
 	}
+
+	public void setInpuGateChained(int runtimeInputGateIndex, boolean isChained) {
+		for (VertexQosReporter reporter : this.reportersByInputGate
+				.get(runtimeInputGateIndex)) {
+			reporter.setInputGateChained(isChained);
+		}
+	}
+
+	public void setOutpuGateChained(int runtimeOutputGateIndex, boolean isChained) {
+		for (VertexQosReporter reporter : this.reportersByOutputGate
+				.get(runtimeOutputGateIndex)) {
+			reporter.setOutputGateChained(isChained);
+		}
+	}
 }

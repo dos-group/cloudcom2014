@@ -35,31 +35,44 @@ public final class VertexStatistics extends AbstractQosReportRecord {
 	private Sample igInterReadTimeMillis;
 	private double recordsConsumedPerSec;
 	private double recordsEmittedPerSec;
+	private boolean igIsChained;
 	private Sample recordInterArrivalTimeMillis;
 
 	public VertexStatistics(QosReporterID.Vertex reporterID,
 			Sample igInterReadTimeMillis, double recordsConsumedPerSec,
-			double recordsEmittedPerSec, Sample recordInterArrivalTimeMillis) {
+			double recordsEmittedPerSec, boolean igIsChained,
+			Sample recordInterArrivalTimeMillis) {
 
 		this.reporterID = reporterID;
 		this.igInterReadTimeMillis = igInterReadTimeMillis;
 		this.recordsConsumedPerSec = recordsConsumedPerSec;
 		this.recordsEmittedPerSec = recordsEmittedPerSec;
 		this.recordInterArrivalTimeMillis = recordInterArrivalTimeMillis;
+		this.igIsChained = recordInterArrivalTimeMillis == null;
 	}
 
 	public VertexStatistics(QosReporterID.Vertex reporterID,
+			Sample igInterReadTimeMillis, double recordsConsumedPerSec,
+			double recordsEmittedPerSec, Sample recordInterArrivalTimeMillis) {
+
+		this(reporterID, igInterReadTimeMillis, recordsConsumedPerSec,
+				recordsEmittedPerSec, false, recordInterArrivalTimeMillis);
+	}
+	
+	public VertexStatistics(QosReporterID.Vertex reporterID,
 			double recordsEmittedPerSec) {
-		this(reporterID, null, -1, recordsEmittedPerSec, null);
+
+		this(reporterID, null, -1, recordsEmittedPerSec, false, null);
 	}
 
 	public VertexStatistics(QosReporterID.Vertex reporterID,
 			Sample readReadTimeMillis, double recordsConsumedPerSec,
 			Sample recordInterArrivalTimeMillis) {
-		this(reporterID, readReadTimeMillis, recordsConsumedPerSec, -1,
-				recordInterArrivalTimeMillis);
-	}
 
+		this(reporterID, readReadTimeMillis, recordsConsumedPerSec, -1,
+				false, recordInterArrivalTimeMillis);
+	}
+	
 	/**
 	 * Default constructor for the deserialization of the object.
 	 */
@@ -88,6 +101,10 @@ public final class VertexStatistics extends AbstractQosReportRecord {
 		return recordsEmittedPerSec;
 	}
 
+	public boolean igIsChained() {
+		return igIsChained;
+	}
+
 	public Sample getInterArrivalTimeMillis() {
 		return recordInterArrivalTimeMillis;
 	}
@@ -99,11 +116,20 @@ public final class VertexStatistics extends AbstractQosReportRecord {
 
 		VertexStatistics fused = new VertexStatistics(reporterID,
 				igInterReadTimeMillis, recordsConsumedPerSec,
-				recordsEmittedPerSec, recordInterArrivalTimeMillis);
+				recordsEmittedPerSec, igIsChained, recordInterArrivalTimeMillis);
 
 		if (hasInputGate) {
-			fused.recordInterArrivalTimeMillis = recordInterArrivalTimeMillis
-					.fuseWithDisjunctSample(other.getInterArrivalTimeMillis());
+			if (!igIsChained() && !other.igIsChained()) {
+				fused.igIsChained = igIsChained();
+				fused.recordInterArrivalTimeMillis = recordInterArrivalTimeMillis
+						.fuseWithDisjunctSample(other.getInterArrivalTimeMillis());
+			} else if (!igIsChained()) {
+				fused.igIsChained = igIsChained();
+				fused.recordInterArrivalTimeMillis = recordInterArrivalTimeMillis;
+			} else if (!other.igIsChained()) {
+				fused.igIsChained = other.igIsChained();
+				fused.recordInterArrivalTimeMillis = other.getInterArrivalTimeMillis();
+			}
 
 			fused.igInterReadTimeMillis = igInterReadTimeMillis
 					.fuseWithDisjunctSample(other
@@ -127,12 +153,14 @@ public final class VertexStatistics extends AbstractQosReportRecord {
 	@Override
 	public void write(final DataOutput out) throws IOException {
 		this.reporterID.write(out);
+		out.writeBoolean(this.igIsChained);
 
 		boolean hasInputGate = reporterID.getInputGateID() != null;
 		boolean hasOutputGate = reporterID.getOutputGateID() != null;
 
 		if (hasInputGate) {
-			recordInterArrivalTimeMillis.write(out);
+			if (!igIsChained)
+				recordInterArrivalTimeMillis.write(out);
 			igInterReadTimeMillis.write(out);
 			out.writeDouble(this.getRecordsConsumedPerSec());
 		}
@@ -149,13 +177,16 @@ public final class VertexStatistics extends AbstractQosReportRecord {
 	public void read(final DataInput in) throws IOException {
 		this.reporterID = new QosReporterID.Vertex();
 		this.reporterID.read(in);
+		this.igIsChained = in.readBoolean();
 
 		boolean hasInputGate = reporterID.getInputGateID() != null;
 		boolean hasOutputGate = reporterID.getOutputGateID() != null;
 
 		if (hasInputGate) {
-			recordInterArrivalTimeMillis = new Sample();
-			recordInterArrivalTimeMillis.read(in);
+			if (!igIsChained) {
+				recordInterArrivalTimeMillis = new Sample();
+				recordInterArrivalTimeMillis.read(in);
+			}
 			igInterReadTimeMillis = new Sample();
 			igInterReadTimeMillis.read(in);
 			this.recordsConsumedPerSec = in.readDouble();

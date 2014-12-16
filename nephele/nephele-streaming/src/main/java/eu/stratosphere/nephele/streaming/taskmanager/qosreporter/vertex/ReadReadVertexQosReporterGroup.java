@@ -33,11 +33,15 @@ public class ReadReadVertexQosReporterGroup implements VertexQosReporter {
 
 	private final int inputGateIndex;
 
+	private boolean igIsChained;
+
 	public ReadReadVertexQosReporterGroup(
 			QosReportForwarderThread reportForwarder, int inputGateIndex,
 			InputGateReceiveCounter igReceiveCounter) {
 
 		this.inputGateIndex = inputGateIndex;
+
+		this.igIsChained = false;
 
 		this.igInterReadTimeSampler = new InputGateInterReadTimeSampler(reportForwarder
 				.getConfigCenter().getSamplingProbability() / 100.0);
@@ -59,18 +63,24 @@ public class ReadReadVertexQosReporterGroup implements VertexQosReporter {
 	protected void sendReportIfDue() {
 		if (reportTimer.reportIsDue() 
 				&& igInterReadTimeSampler.hasSample()
-				&& igInterArrivalTimeSampler.hasSample()) {
+				&& (igIsChained || igInterArrivalTimeSampler.hasSample())) {
 
 			long now = System.currentTimeMillis();
 			
 			// draw sample and rescale from micros to millis
 			Sample vertexLatency = igInterReadTimeSampler.drawSampleAndReset(now).rescale(0.001);
-			Sample interarrivalTime = igInterArrivalTimeSampler.drawSampleAndReset(now).rescale(0.001);
 			
 			double recordsConsumedPerSec = getRecordsConsumedPerSec((now - reportTimer.getTimeOfLastReport()) / 1000.0);
 			
-			for (ReadReadReporter reporter : reporters) {
-				reporter.sendReport(now, vertexLatency, interarrivalTime, recordsConsumedPerSec);
+			if (igIsChained) {
+				for (ReadReadReporter reporter : reporters) {
+					reporter.sendReport(now, vertexLatency, recordsConsumedPerSec);
+				}
+			} else {
+				Sample interarrivalTime = igInterArrivalTimeSampler.drawSampleAndReset(now).rescale(0.001);
+				for (ReadReadReporter reporter : reporters) {
+					reporter.sendReport(now, vertexLatency, interarrivalTime, recordsConsumedPerSec);
+				}
 			}
 
 			reportTimer.reset(now);
@@ -120,6 +130,19 @@ public class ReadReadVertexQosReporterGroup implements VertexQosReporter {
 	@Override
 	public int getRuntimeOutputGateIndex() {
 		return -1;
+	}
+
+	@Override
+	public void setInputGateChained(boolean isChained) {
+		this.igIsChained = isChained;
+
+		for (ReadReadReporter reporter : reporters)
+			reporter.setInputGateChained(isChained);
+	}
+
+	@Override
+	public void setOutputGateChained(boolean isChained) {
+		// nothing to do
 	}
 
 	public ReportTimer getReportTimer() {

@@ -40,12 +40,19 @@ public class VertexQosData {
 
 	private QosStatistic[] igRecordInterArrivalTime;
 
+	/**
+	 * Sparse array index by inputGateIndex. If true, at least one vertex has a 
+	 * gate in chained state and does not receive/contains any recordInterArrivalStatistics.
+	 */
+	private Boolean[] hasChainedIgs;
+
 	public VertexQosData(QosVertex vertex) {
 		this.vertex = vertex;		
 		this.igRecordsConsumedPerSec = new QosStatistic[1];
 		this.ogRecordsEmittedPerSec = new QosStatistic[1];
 		this.igInterReadTime = new QosStatistic[1];
 		this.igRecordInterArrivalTime = new QosStatistic[1];
+		this.hasChainedIgs = new Boolean[1];
 	}
 
 	public QosVertex getVertex() {
@@ -81,19 +88,22 @@ public class VertexQosData {
 	}
 
 	public double getInterArrivalTimeInMillis(int inputGateIndex) {
-		if (igRecordInterArrivalTime[inputGateIndex].hasValues()) {
+		if (!hasChainedIgs[inputGateIndex] && igRecordInterArrivalTime[inputGateIndex].hasValues()) {
 			return igRecordInterArrivalTime[inputGateIndex].getMean();
 		}
 		return -1;
 	}
 
 	public double getInterArrivalTimeVarianceInMillis(int inputGateIndex) {
-		if (igRecordInterArrivalTime[inputGateIndex].hasValues()) {
+		if (!hasChainedIgs[inputGateIndex] && igRecordInterArrivalTime[inputGateIndex].hasValues()) {
 			return igRecordInterArrivalTime[inputGateIndex].getVariance();
 		}
 		return -1;
 	}
 
+	public boolean hasChainedInputGates(int inputGateIndex) {
+		return hasChainedIgs[inputGateIndex];
+	}
 
 	public void prepareForReportsOnGateCombination(int inputGateIndex,
 			int outputGateIndex) {
@@ -113,6 +123,8 @@ public class VertexQosData {
 				igRecordsConsumedPerSec, inputGateIndex,
 				new QosStatistic(StreamPluginConfig.computeQosStatisticWindowSize()));
 		
+		hasChainedIgs = setInArray(Boolean.class, hasChainedIgs, inputGateIndex, Boolean.FALSE);
+
 		igRecordInterArrivalTime = setInArray(QosStatistic.class,
 				igRecordInterArrivalTime, inputGateIndex,
 				new QosStatistic(StreamPluginConfig.computeQosStatisticWindowSize(), true));
@@ -166,11 +178,14 @@ public class VertexQosData {
 					.addValue(new QosValue(measurement
 							.getRecordsConsumedPerSec(), timestamp));
 
-			Sample interarrivalTime = measurement.getInterArrivalTimeMillis();
-			igRecordInterArrivalTime[inputGateIndex].addValue(new QosValue(
-					interarrivalTime.getMean(), interarrivalTime.getVariance(),
-					interarrivalTime.getNoOfSamplePoints(),
-					timestamp));
+			if (!measurement.igIsChained()) {
+				Sample interarrivalTime = measurement.getInterArrivalTimeMillis();
+				igRecordInterArrivalTime[inputGateIndex].addValue(new QosValue(
+						interarrivalTime.getMean(), interarrivalTime.getVariance(),
+						interarrivalTime.getNoOfSamplePoints(),
+						timestamp));
+			} else
+				hasChainedIgs[inputGateIndex] = true;
 		}
 
 		if (outputGateIndex != -1) {
