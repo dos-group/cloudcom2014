@@ -10,7 +10,7 @@ public class VertexConsumptionReporter extends AbstractVertexQosReporter {
 	
 	public VertexConsumptionReporter(QosReportForwarderThread reportForwarder,
 			QosReporterID.Vertex reporterID, int runtimeInputGateIndex,
-			InputGateReceiveCounter igReceiveCounter) {
+			InputGateReporter igReceiveCounter) {
 
 		super(reportForwarder, reporterID, new ReportTimer(reportForwarder
 				.getConfigCenter().getAggregationInterval()),

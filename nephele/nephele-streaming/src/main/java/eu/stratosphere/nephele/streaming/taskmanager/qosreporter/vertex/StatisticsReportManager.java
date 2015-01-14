@@ -1,14 +1,16 @@
 package eu.stratosphere.nephele.streaming.taskmanager.qosreporter.vertex;
 
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicReferenceArray;
-
 import eu.stratosphere.nephele.streaming.SamplingStrategy;
 import eu.stratosphere.nephele.streaming.message.qosreport.VertexStatistics;
 import eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosReporterID;
 import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.QosReportForwarderThread;
 import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.QosReporterConfigCenter;
+import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.TimestampTag;
 import eu.stratosphere.nephele.streaming.util.StreamUtil;
+import eu.stratosphere.nephele.types.AbstractTaggableRecord;
+
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /**
  * Handles the measurement and reporting of latencies and record
@@ -18,7 +20,8 @@ import eu.stratosphere.nephele.streaming.util.StreamUtil;
  * multiple associated latencies, one for each input/output gate combination.
  * Which gate combination is measured and reported on must be configured by
  * calling
- * {@link #addReporter(int, int, eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosReporterID.Vertex, eu.stratosphere.nephele.streaming.SamplingStrategy)}
+ * {@link #addReporter(int, int, eu.stratosphere.nephele.streaming.taskmanager.qosmodel.QosReporterID.Vertex,
+ * eu.stratosphere.nephele.streaming.SamplingStrategy)}
  * .
  * <p/>
  * An {@link VertexStatistics} record per configured input/output gate
@@ -26,30 +29,47 @@ import eu.stratosphere.nephele.streaming.util.StreamUtil;
  * approximately once per aggregation interval (see
  * {@link QosReporterConfigCenter}). "Approximately" because if no records have
  * been received/emitted, nothing will be reported.
- * 
+ *
  * @author Bjoern Lohrmann
  */
-public class VertexStatisticsReportManager {
+public class StatisticsReportManager {
 
-	// private static final Log LOG =
-	// LogFactory.getLog(TaskLatencyReporter.class);
+	// private static final Log LOG = LogFactory.getLog(TaskLatencyReporter.class);
 
 	private final QosReportForwarderThread reportForwarder;
-	private final AtomicReferenceArray<InputGateReceiveCounter> inputGateReceiveCounter;
-	private final AtomicReferenceArray<OutputGateEmitStatistics> outputGateEmitStatistics;
+
+	/**
+	 * For each input gate of the task for whose channels latency reporting is
+	 * required, this list contains a InputGateReporterManager. A
+	 * InputGateReporterManager keeps track of and reports on the latencies for
+	 * all of the input gate's channels. This is a sparse list (may contain
+	 * nulls), indexed by the runtime gate's own indices.
+	 */
+	private final AtomicReferenceArray<InputGateReporter> inputGateReporter;
+
+	/**
+	 * For each output gate of the task for whose output channels QoS statistics
+	 * are required (throughput, output buffer lifetime, ...), this list
+	 * contains a OutputGateReporterManager. Each OutputGateReporterManager
+	 * keeps track of and reports on Qos statistics all of the output gate's
+	 * channels and also attaches tags to records sent via its channels. This is
+	 * a sparse list (may contain nulls), indexed by the runtime gate's own
+	 * indices.
+	 */
+	private final AtomicReferenceArray<OutputGateReporter> outputGateReporter;
 
 	private final ConcurrentHashMap<QosReporterID, VertexQosReporter> reporters;
 	private final AtomicReferenceArray<VertexQosReporter[]> reportersByInputGate;
 	private final AtomicReferenceArray<VertexQosReporter[]> reportersByOutputGate;
 
-	public VertexStatisticsReportManager(QosReportForwarderThread qosReporter,
+	public StatisticsReportManager(QosReportForwarderThread qosReporter,
 			int noOfInputGates, int noOfOutputGates) {
 
 		this.reportForwarder = qosReporter;
 
-		this.inputGateReceiveCounter = new AtomicReferenceArray<InputGateReceiveCounter>(
+		this.inputGateReporter = new AtomicReferenceArray<InputGateReporter>(
 				noOfInputGates);
-		this.outputGateEmitStatistics = new AtomicReferenceArray<OutputGateEmitStatistics>(
+		this.outputGateReporter = new AtomicReferenceArray<OutputGateReporter>(
 				noOfOutputGates);
 
 		this.reportersByInputGate = StreamUtil
@@ -63,11 +83,11 @@ public class VertexStatisticsReportManager {
 	}
 
 	public void recordReceived(int runtimeInputGateIndex) {
-		InputGateReceiveCounter igCounter = inputGateReceiveCounter
+		InputGateReporter igCounter = inputGateReporter
 				.get(runtimeInputGateIndex);
 
 		if (igCounter != null) {
-			igCounter.recordReceived();
+			igCounter.countRecord();
 		}
 
 		for (VertexQosReporter reporter : this.reportersByInputGate
@@ -83,16 +103,49 @@ public class VertexStatisticsReportManager {
 		}
 	}
 
-	public void recordEmitted(int runtimeOutputGateIndex) {
-		OutputGateEmitStatistics ogStats = outputGateEmitStatistics
-				.get(runtimeOutputGateIndex);
+	public void inputBufferConsumed(int inputGateIndex, int channelIndex,
+			long bufferInterarrivalTimeNanos, int recordsReadFromBuffer) {
+
+		for (VertexQosReporter reporter : this.reportersByInputGate
+				.get(inputGateIndex)) {
+			reporter.inputBufferConsumed(inputGateIndex, channelIndex,
+					bufferInterarrivalTimeNanos, recordsReadFromBuffer);
+		}
+	}
+
+	public void reportLatenciesIfNecessary(int inputGateIndex, int channelIndex, TimestampTag timestampTag) {
+		InputGateReporter inputGateReporter = this.inputGateReporter.get(inputGateIndex);
+		if (inputGateReporter.isReporter()) {
+			inputGateReporter.reportLatenciesIfNecessary(channelIndex, timestampTag);
+		}
+	}
+
+	public void outputBufferSent(int outputGateIndex, int channelIndex, long currentAmountTransmitted) {
+		OutputGateReporter outputGateReporter = this.outputGateReporter.get(outputGateIndex);
+		if (outputGateReporter.isReporter()) {
+			outputGateReporter.outputBufferSent(channelIndex, currentAmountTransmitted);
+		}
+	}
+
+	public void recordEmitted(int outputGateIndex, int channelIndex, AbstractTaggableRecord record) {
+		OutputGateReporter ogStats = outputGateReporter.get(outputGateIndex);
+
 		if (ogStats != null) {
-			ogStats.emitted();
+			ogStats.countRecord();
+			if (ogStats.isReporter()) {
+				ogStats.recordEmitted(channelIndex, record);
+			}
 		}
 
-		for (VertexQosReporter reporter : this.reportersByOutputGate
-				.get(runtimeOutputGateIndex)) {
-			reporter.recordEmitted(runtimeOutputGateIndex);
+		for (VertexQosReporter reporter : reportersByOutputGate.get(outputGateIndex)) {
+			reporter.recordEmitted(outputGateIndex);
+		}
+	}
+
+	public void outputBufferAllocated(int runtimeGateIndex, int channelIndex) {
+		OutputGateReporter outputGateReporter = this.outputGateReporter.get(runtimeGateIndex);
+		if (outputGateReporter != null) {
+			outputGateReporter.outputBufferAllocated(channelIndex);
 		}
 	}
 
@@ -109,10 +162,10 @@ public class VertexStatisticsReportManager {
 		}
 
 		if (!reporterID.isDummy()) {
-			inputGateReceiveCounter.compareAndSet(runtimeInputGateIndex, null,
-					new InputGateReceiveCounter());
-			outputGateEmitStatistics.compareAndSet(runtimeOutputGateIndex, null,
-					new OutputGateEmitStatistics());
+			inputGateReporter.compareAndSet(runtimeInputGateIndex, null,
+					new InputGateReporter());
+			outputGateReporter.compareAndSet(runtimeOutputGateIndex, null,
+					new OutputGateReporter());
 
 			switch (samplingStrategy) {
 			case READ_WRITE:
@@ -130,13 +183,13 @@ public class VertexStatisticsReportManager {
 			}
 
 		} else if (runtimeInputGateIndex != -1) {
-			inputGateReceiveCounter.compareAndSet(runtimeInputGateIndex, null,
-					new InputGateReceiveCounter());
+			inputGateReporter.compareAndSet(runtimeInputGateIndex, null,
+					new InputGateReporter());
 			addVertexConsumptionReporter(runtimeInputGateIndex, reporterID);
 
 		} else if (runtimeOutputGateIndex != -1) {
-			outputGateEmitStatistics.compareAndSet(runtimeOutputGateIndex, null,
-					new OutputGateEmitStatistics());
+			outputGateReporter.compareAndSet(runtimeOutputGateIndex, null,
+					new OutputGateReporter());
 			addVertexEmissionReporter(runtimeOutputGateIndex, reporterID);
 		}
 	}
@@ -145,7 +198,7 @@ public class VertexStatisticsReportManager {
 			QosReporterID.Vertex reporterID) {
 		VertexEmissionReporter reporter = new VertexEmissionReporter(
 				reportForwarder, reporterID, runtimeOutputGateIndex,
-				outputGateEmitStatistics.get(runtimeOutputGateIndex));
+				outputGateReporter.get(runtimeOutputGateIndex));
 
 		addToReporterArray(reportersByOutputGate, runtimeOutputGateIndex,
 				reporter);
@@ -156,7 +209,7 @@ public class VertexStatisticsReportManager {
 			QosReporterID.Vertex reporterID) {
 		VertexConsumptionReporter reporter = new VertexConsumptionReporter(
 				reportForwarder, reporterID, runtimeInputGateIndex,
-				inputGateReceiveCounter.get(runtimeInputGateIndex));
+				inputGateReporter.get(runtimeInputGateIndex));
 
 		addToReporterArray(reportersByInputGate, runtimeInputGateIndex,
 				reporter);
@@ -165,7 +218,7 @@ public class VertexStatisticsReportManager {
 
 	public void addReadReadReporter(int runtimeInputGateIndex,
 			int runtimeOutputGateIndex, QosReporterID.Vertex reporterID) {
-		
+
 		// search for ReadReadVertexQosReporterGroup
 		ReadReadVertexQosReporterGroup groupReporter = null;
 		for (VertexQosReporter vertexQosReporter : reportersByInputGate
@@ -175,12 +228,12 @@ public class VertexStatisticsReportManager {
 				break;
 			}
 		}
-		
+
 		// create a ReadReadVertexQosReporterGroup if none found for the given
 		// runtimeInputGateIndex
 		if (groupReporter == null) {
 			groupReporter = new ReadReadVertexQosReporterGroup(reportForwarder, runtimeInputGateIndex,
-					inputGateReceiveCounter.get(runtimeInputGateIndex));
+					inputGateReporter.get(runtimeInputGateIndex));
 			// READ_READ reporters needs to keep track of all input gates
 			for (int i = 0; i < this.reportersByInputGate.length(); i++) {
 				addToReporterArray(reportersByInputGate, i, groupReporter);
@@ -188,10 +241,10 @@ public class VertexStatisticsReportManager {
 		}
 
 		ReadReadReporter reporter = new ReadReadReporter(reportForwarder,
-				reporterID, groupReporter.getReportTimer(), 
+				reporterID, groupReporter.getReportTimer(),
 				runtimeInputGateIndex, runtimeOutputGateIndex,
-				inputGateReceiveCounter.get(runtimeInputGateIndex),
-				outputGateEmitStatistics.get(runtimeOutputGateIndex));
+				inputGateReporter.get(runtimeInputGateIndex),
+				outputGateReporter.get(runtimeOutputGateIndex));
 
 		groupReporter.addReporter(reporter);
 		this.reporters.put(reporterID, reporter);
@@ -202,8 +255,8 @@ public class VertexStatisticsReportManager {
 
 		VertexQosReporter reporter = new ReadWriteReporter(reportForwarder,
 				reporterID, runtimeInputGateIndex, runtimeOutputGateIndex,
-				inputGateReceiveCounter.get(runtimeInputGateIndex),
-				outputGateEmitStatistics.get(runtimeOutputGateIndex));
+				inputGateReporter.get(runtimeInputGateIndex),
+				outputGateReporter.get(runtimeOutputGateIndex));
 
 		// for the READ_WRITE strategy the reporter needs to keep track of the
 		// events on
@@ -229,13 +282,19 @@ public class VertexStatisticsReportManager {
 						VertexQosReporter.class, reporter));
 	}
 
-	public void inputBufferConsumed(int inputGateIndex, int channelIndex,
-			long bufferInterarrivalTimeNanos, int recordsReadFromBuffer) {
+	public synchronized void addInputGateReporter(int inputGateIndex, int channelIndex,
+			int noOfInputChannels, QosReporterID.Edge reporterID) {
+		inputGateReporter.compareAndSet(inputGateIndex, null, new InputGateReporter());
+		InputGateReporter inputGateReporter = this.inputGateReporter.get(inputGateIndex);
+		inputGateReporter.initReporter(reportForwarder, noOfInputChannels);
+		inputGateReporter.addEdgeQosReporterConfig(channelIndex, reporterID);
+	}
 
-		for (VertexQosReporter reporter : this.reportersByInputGate
-				.get(inputGateIndex)) {
-			reporter.inputBufferConsumed(inputGateIndex, channelIndex,
-					bufferInterarrivalTimeNanos, recordsReadFromBuffer);
-		}
+	public synchronized void addOutputGateReporter(int outputGateIndex, int channelIndex,
+			int noOfOutputChannels, QosReporterID.Edge reporterID) {
+		outputGateReporter.compareAndSet(outputGateIndex, null, new OutputGateReporter());
+		OutputGateReporter outputGateReporter = this.outputGateReporter.get(outputGateIndex);
+		outputGateReporter.initReporter(reportForwarder, noOfOutputChannels);
+		outputGateReporter.addEdgeQosReporterConfig(channelIndex, reporterID);
 	}
 }

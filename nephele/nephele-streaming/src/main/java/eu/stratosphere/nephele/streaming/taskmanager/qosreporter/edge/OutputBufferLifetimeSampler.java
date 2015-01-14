@@ -3,7 +3,7 @@ package eu.stratosphere.nephele.streaming.taskmanager.qosreporter.edge;
 import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.sampling.BernoulliSampleDesign;
 
 /**
- * Created by bjoern on 4/6/15.
+ * @author Bjoern Lohrmann
  */
 public class OutputBufferLifetimeSampler {
 
