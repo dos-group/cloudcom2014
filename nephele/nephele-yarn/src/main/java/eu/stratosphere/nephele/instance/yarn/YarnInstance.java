@@ -13,28 +13,22 @@
  *
  **********************************************************************************************************************/
 
-package eu.stratosphere.nephele.discovery;
+package eu.stratosphere.nephele.instance.yarn;
 
-/**
- * Exception that is thrown when an error related to the {@link DiscoveryService}.
- * 
- * @author warneke
- */
-public class DiscoveryException extends Exception {
+import eu.stratosphere.nephele.instance.AbstractInstance;
+import eu.stratosphere.nephele.instance.HardwareDescription;
+import eu.stratosphere.nephele.instance.InstanceConnectionInfo;
+import eu.stratosphere.nephele.instance.InstanceType;
+import eu.stratosphere.nephele.topology.NetworkNode;
+import eu.stratosphere.nephele.topology.NetworkTopology;
 
-	/**
-	 * Random serialization ID.
-	 */
-	private static final long serialVersionUID = 7647491334281738439L;
 
-	/**
-	 * Constructs a new discovery exception with the specified error message.
-	 * 
-	 * @param msg
-	 *        the error message that should be transported with this exception
-	 */
-	public DiscoveryException(String msg) {
-		super(msg);
+class YarnInstance extends AbstractInstance {
+
+	public YarnInstance(final InstanceConnectionInfo instanceConnectionInfo, final InstanceType capacity,
+	                    final NetworkNode parentNode, final NetworkTopology networkTopology,
+	                    final HardwareDescription hardwareDescription) {
+
+		super(capacity, instanceConnectionInfo, parentNode, networkTopology, hardwareDescription);
 	}
-
 }

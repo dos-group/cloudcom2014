@@ -39,6 +39,7 @@
 
 	<modules>
 		<module>nephele-common</module>
+		<module>nephele-common-yarn</module>
 		<module>nephele-management</module>
 		<module>nephele-profiling</module>
 		<module>nephele-queuescheduler</module>
@@ -47,6 +48,7 @@
 		<module>nephele-server</module>
 		<module>nephele-streaming</module>
 		<module>nephele-examples</module>
+		<module>nephele-yarn</module>
 	</modules>
 
 	<reporting>

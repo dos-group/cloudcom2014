@@ -33,37 +33,6 @@
 
 package eu.stratosphere.nephele.jobmanager;
 
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.UnknownHostException;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Properties;
-import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.CommandLineParser;
-import org.apache.commons.cli.GnuParser;
-import org.apache.commons.cli.Option;
-import org.apache.commons.cli.OptionBuilder;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.ParseException;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.apache.log4j.ConsoleAppender;
-import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
-import org.apache.log4j.PatternLayout;
-
 import eu.stratosphere.nephele.client.AbstractJobResult;
 import eu.stratosphere.nephele.client.AbstractJobResult.ReturnCode;
 import eu.stratosphere.nephele.client.JobCancelResult;
@@ -73,38 +42,17 @@ import eu.stratosphere.nephele.configuration.ConfigConstants;
 import eu.stratosphere.nephele.configuration.Configuration;
 import eu.stratosphere.nephele.configuration.GlobalConfiguration;
 import eu.stratosphere.nephele.deployment.TaskDeploymentDescriptor;
-import eu.stratosphere.nephele.discovery.DiscoveryException;
-import eu.stratosphere.nephele.discovery.DiscoveryService;
 import eu.stratosphere.nephele.event.job.AbstractEvent;
 import eu.stratosphere.nephele.event.job.RecentJobEvent;
 import eu.stratosphere.nephele.execution.ExecutionState;
 import eu.stratosphere.nephele.execution.librarycache.LibraryCacheManager;
-import eu.stratosphere.nephele.executiongraph.ExecutionEdge;
-import eu.stratosphere.nephele.executiongraph.ExecutionGraph;
-import eu.stratosphere.nephele.executiongraph.ExecutionGraphIterator;
-import eu.stratosphere.nephele.executiongraph.ExecutionGroupVertex;
-import eu.stratosphere.nephele.executiongraph.ExecutionVertex;
-import eu.stratosphere.nephele.executiongraph.ExecutionVertexID;
-import eu.stratosphere.nephele.executiongraph.GraphConversionException;
-import eu.stratosphere.nephele.executiongraph.InternalJobStatus;
-import eu.stratosphere.nephele.executiongraph.JobStatusListener;
-import eu.stratosphere.nephele.instance.AbstractInstance;
-import eu.stratosphere.nephele.instance.DummyInstance;
-import eu.stratosphere.nephele.instance.HardwareDescription;
-import eu.stratosphere.nephele.instance.InstanceConnectionInfo;
-import eu.stratosphere.nephele.instance.InstanceManager;
-import eu.stratosphere.nephele.instance.InstanceType;
-import eu.stratosphere.nephele.instance.InstanceTypeDescription;
-import eu.stratosphere.nephele.instance.local.LocalInstanceManager;
+import eu.stratosphere.nephele.executiongraph.*;
+import eu.stratosphere.nephele.instance.*;
 import eu.stratosphere.nephele.io.IOReadableWritable;
 import eu.stratosphere.nephele.io.channels.ChannelID;
 import eu.stratosphere.nephele.ipc.RPC;
 import eu.stratosphere.nephele.ipc.Server;
-import eu.stratosphere.nephele.jobgraph.AbstractJobVertex;
-import eu.stratosphere.nephele.jobgraph.JobGraph;
-import eu.stratosphere.nephele.jobgraph.JobGraphDefinitionException;
-import eu.stratosphere.nephele.jobgraph.JobID;
-import eu.stratosphere.nephele.jobgraph.JobVertexID;
+import eu.stratosphere.nephele.jobgraph.*;
 import eu.stratosphere.nephele.jobmanager.archive.ArchiveListener;
 import eu.stratosphere.nephele.jobmanager.archive.MemoryArchivist;
 import eu.stratosphere.nephele.jobmanager.scheduler.AbstractScheduler;
@@ -121,16 +69,8 @@ import eu.stratosphere.nephele.plugins.PluginManager;
 import eu.stratosphere.nephele.profiling.JobManagerProfiler;
 import eu.stratosphere.nephele.profiling.ProfilingListener;
 import eu.stratosphere.nephele.profiling.ProfilingUtils;
-import eu.stratosphere.nephele.protocols.ChannelLookupProtocol;
-import eu.stratosphere.nephele.protocols.ExtendedManagementProtocol;
-import eu.stratosphere.nephele.protocols.InputSplitProviderProtocol;
-import eu.stratosphere.nephele.protocols.JobManagerProtocol;
-import eu.stratosphere.nephele.protocols.PluginCommunicationProtocol;
-import eu.stratosphere.nephele.taskmanager.AbstractTaskResult;
-import eu.stratosphere.nephele.taskmanager.TaskCancelResult;
-import eu.stratosphere.nephele.taskmanager.TaskExecutionState;
-import eu.stratosphere.nephele.taskmanager.TaskKillResult;
-import eu.stratosphere.nephele.taskmanager.TaskSubmissionResult;
+import eu.stratosphere.nephele.protocols.*;
+import eu.stratosphere.nephele.taskmanager.*;
 import eu.stratosphere.nephele.taskmanager.bytebuffered.ConnectionInfoLookupResponse;
 import eu.stratosphere.nephele.taskmanager.bytebuffered.RemoteReceiver;
 import eu.stratosphere.nephele.taskmanager.runtime.ExecutorThreadFactory;
@@ -139,6 +79,23 @@ import eu.stratosphere.nephele.types.IntegerRecord;
 import eu.stratosphere.nephele.types.StringRecord;
 import eu.stratosphere.nephele.util.SerializableArrayList;
 import eu.stratosphere.nephele.util.StringUtils;
+import org.apache.commons.cli.*;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.log4j.ConsoleAppender;
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
+import org.apache.log4j.PatternLayout;
+
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.InetSocketAddress;
+import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * In Nephele the job manager is the central component for communication with clients, creating
@@ -146,26 +103,28 @@ import eu.stratosphere.nephele.util.StringUtils;
  * the system and its address must be known the clients.
  * Task managers can discover the job manager by means of an UDP broadcast and afterwards advertise
  * themselves as new workers for tasks.
- * 
+ *
  * @author warneke
  */
 public class JobManager implements DeploymentManager, ExtendedManagementProtocol, InputSplitProviderProtocol,
 		JobManagerProtocol, ChannelLookupProtocol, JobStatusListener, PluginCommunicationProtocol  {
-	
-	public static enum ExecutionMode { LOCAL, CLUSTER }
-	
+
+	public static enum ExecutionMode { LOCAL, CLUSTER, YARN }
+
 	// --------------------------------------------------------------------------------------------
 
 	private static final Log LOG = LogFactory.getLog(JobManager.class);
-	
+
 	private static JobManager singletonInstance;
+
+	private final InetSocketAddress rpcServerAddress;
 
 	private Server jobManagerServer = null;
 
 	private final JobManagerProfiler profiler;
 
 	private final EventCollector eventCollector;
-	
+
 	private final ArchiveListener archive;
 
 	private final InputSplitManager inputSplitManager;
@@ -189,35 +148,29 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 	private final AtomicBoolean isShutdownInProgress = new AtomicBoolean(false);
 
 	private volatile boolean isShutDown = false;
-	
+
 	private WebInfoServer server;
-	
+
 	public JobManager(ExecutionMode executionMode) {
 
-		final String ipcAddressString = GlobalConfiguration
-			.getString(ConfigConstants.JOB_MANAGER_IPC_ADDRESS_KEY, null);
-
-		InetAddress ipcAddress = null;
-		if (ipcAddressString != null) {
-			try {
-				ipcAddress = InetAddress.getByName(ipcAddressString);
-			} catch (UnknownHostException e) {
-				LOG.error("Cannot convert " + ipcAddressString + " to an IP address: "
-					+ StringUtils.stringifyException(e));
-				System.exit(FAILURERETURNCODE);
-			}
+	String rpcHostStr = null;
+		switch(executionMode) {
+			case CLUSTER:
+				rpcHostStr = GlobalConfiguration.getString(ConfigConstants.JOB_MANAGER_IPC_ADDRESS_KEY, null);
+				break;
+			case LOCAL:
+				rpcHostStr = "localhost";
+				break;
+			case YARN:
+				rpcHostStr = System.getenv("NM_HOST");
+				break;
 		}
 
-		final int ipcPort = GlobalConfiguration.getInteger(ConfigConstants.JOB_MANAGER_IPC_PORT_KEY,
-			ConfigConstants.DEFAULT_JOB_MANAGER_IPC_PORT);
+		// Determine own RPC address
+		final int rpcPort = GlobalConfiguration.getInteger(ConfigConstants.JOB_MANAGER_IPC_PORT_KEY,
+						ConfigConstants.DEFAULT_JOB_MANAGER_IPC_PORT);
 
-		// First of all, start discovery manager
-		try {
-			DiscoveryService.startDiscoveryService(ipcAddress, ipcPort);
-		} catch (DiscoveryException e) {
-			LOG.error("Cannot start discovery manager: " + StringUtils.stringifyException(e));
-			System.exit(FAILURERETURNCODE);
-		}
+		rpcServerAddress = new InetSocketAddress(rpcHostStr, rpcPort);
 
 		// Read the suggested client polling interval
 		this.recommendedClientPollingInterval = GlobalConfiguration.getInteger(
@@ -225,7 +178,7 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 
 		// Load the job progress collector
 		this.eventCollector = new EventCollector(this.recommendedClientPollingInterval);
-		
+
 		// Register simple job archive
 		int archived_items = GlobalConfiguration.getInteger(
 				ConfigConstants.JOB_MANAGER_WEB_ARCHIVE_COUNT, ConfigConstants.DEFAULT_JOB_MANAGER_WEB_ARCHIVE_COUNT);
@@ -233,20 +186,17 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 			this.archive = new MemoryArchivist(archived_items);
 			this.eventCollector.registerArchivist(archive);
 		}
-		else
+		else {
 			this.archive = null;
+		}
 
 		// Load the input split manager
 		this.inputSplitManager = new InputSplitManager();
-
-		// Determine own RPC address
-		final InetSocketAddress rpcServerAddress = new InetSocketAddress(ipcAddress, ipcPort);
-
 		// Start job manager's IPC server
 		try {
 			final int handlerCount = GlobalConfiguration.getInteger("jobmanager.rpc.numhandler", 3);
 			this.jobManagerServer = RPC.getServer(this, rpcServerAddress.getHostName(), rpcServerAddress.getPort(),
-				handlerCount);
+							handlerCount);
 			this.jobManagerServer.start();
 		} catch (IOException ioe) {
 			LOG.error("Cannot start RPC server: " + StringUtils.stringifyException(ioe));
@@ -260,22 +210,14 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 
 		// Try to load the instance manager for the given execution mode
 		// Try to load the scheduler for the given execution mode
-		if (executionMode == ExecutionMode.LOCAL) {
-			try {
-				this.instanceManager = new LocalInstanceManager();
-			} catch (RuntimeException rte) {
-				LOG.fatal("Cannot instantiate local instance manager: " + StringUtils.stringifyException(rte));
-				System.exit(FAILURERETURNCODE);
-			}
-		} else {
-			final String instanceManagerClassName = JobManagerUtils.getInstanceManagerClassName(executionMode);
-			LOG.info("Trying to load " + instanceManagerClassName + " as instance manager");
-			this.instanceManager = JobManagerUtils.loadInstanceManager(instanceManagerClassName);
-			if (this.instanceManager == null) {
-				LOG.error("Unable to load instance manager " + instanceManagerClassName);
-				System.exit(FAILURERETURNCODE);
-			}
+		final String instanceManagerClassName = JobManagerUtils.getInstanceManagerClassName(executionMode);
+		LOG.info("Trying to load " + instanceManagerClassName + " as instance manager");
+		this.instanceManager = JobManagerUtils.loadInstanceManager(instanceManagerClassName);
+		if (this.instanceManager == null) {
+			LOG.error("Unable to load instance manager " + instanceManagerClassName);
+			System.exit(FAILURERETURNCODE);
 		}
+
 
 		// Try to load the scheduler for the given execution mode
 		final String schedulerClassName = JobManagerUtils.getSchedulerClassName(executionMode);
@@ -295,7 +237,7 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 		if (GlobalConfiguration.getBoolean(ProfilingUtils.ENABLE_PROFILING_KEY, false)) {
 			final String profilerClassName = GlobalConfiguration.getString(ProfilingUtils.JOBMANAGER_CLASSNAME_KEY,
 				"eu.stratosphere.nephele.profiling.impl.JobManagerProfilerImpl");
-			this.profiler = ProfilingUtils.loadJobManagerProfiler(profilerClassName, ipcAddress);
+			this.profiler = ProfilingUtils.loadJobManagerProfiler(profilerClassName, rpcServerAddress.getAddress());
 			if (this.profiler == null) {
 				LOG.error("Cannot load profiler");
 				System.exit(FAILURERETURNCODE);
@@ -308,6 +250,10 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 		// Add shutdown hook for clean up tasks
 		Runtime.getRuntime().addShutdownHook(new JobManagerCleanUp(this));
 
+	}
+
+	public InetSocketAddress getRpcServerAddress() {
+		return rpcServerAddress;
 	}
 
 	/**
@@ -338,9 +284,6 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 		if (this.instanceManager != null) {
 			this.instanceManager.shutdown();
 		}
-
-		// Stop the discovery service
-		DiscoveryService.stopDiscoveryService();
 
 		// Stop profiling if enabled
 		if (this.profiler != null) {
@@ -389,7 +332,7 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 	 */
 	private static void logVersionInformation() {
 		String version = JobManager.class.getPackage().getImplementationVersion();
-		
+
 		// if version == null, then the JobManager runs from inside the IDE (or somehow not from the maven build jar)
 		if (version != null) {
 			String revision = "<unknown>";
@@ -403,25 +346,27 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 			} catch (IOException e) {
 				LOG.info("Cannot determine code revision. Unable ro read version property file.");
 			}
-			
+
 			LOG.info("Starting Stratosphere JobManager (Version: " + version + ", Rev:" + revision + ")");
 		}
 	}
-	
-	
+
+
 	public static JobManager getInstance() {
 		return singletonInstance;
 	}
-	
+
 	/**
 	 * Entry point for the program
-	 * 
+	 *
 	 * @param args
 	 *        arguments from the command line
 	 */
 	@SuppressWarnings("static-access")
-	public static void main(final String[] args) {
-		
+	public static void main(final String[] args) throws IOException {
+		System.out.println(System.getenv().toString());
+		System.out.println(org.apache.commons.lang3.StringUtils.join(args, " "));
+
 		// determine if a valid log4j config exists and initialize a default logger if not
 		if (System.getProperty("log4j.configuration") == null) {
 			Logger root = Logger.getRootLogger();
@@ -431,10 +376,10 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 			root.addAppender(appender);
 			root.setLevel(Level.INFO);
 		}
-		
+
 		// output the version and revision information to the log
 		logVersionInformation();
-		
+
 		final Option configDirOpt = OptionBuilder.withArgName("config directory").hasArg()
 			.withDescription("Specify <configuration directory.").create("configDir");
 
@@ -456,42 +401,57 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 
 		final String configDir = line.getOptionValue(configDirOpt.getOpt(), null);
 		final String executionModeName = line.getOptionValue(executionModeOpt.getOpt(), "local");
-		
+
 		final ExecutionMode executionMode;
 		if ("local".equals(executionModeName)) {
 			executionMode = ExecutionMode.LOCAL;
 		} else if ("cluster".equals(executionModeName)) {
 			executionMode = ExecutionMode.CLUSTER;
+		} else if ("yarn".equals(executionModeName)) {
+			executionMode = ExecutionMode.YARN;
 		} else {
 			System.err.println("Unrecognized execution mode: " + executionModeName);
 			System.exit(FAILURERETURNCODE);
 			return;
 		}
-		
-		// First, try to load global configuration
+
 		GlobalConfiguration.loadConfiguration(configDir);
 
 		// Create a new job manager object
 		JobManager jobManager = new JobManager(executionMode);
-		
+
 		singletonInstance = jobManager;
-		
+
 		// Set base dir for info server
 		Configuration infoserverConfig = GlobalConfiguration.getConfiguration();
 		if (configDir != null) {
 			infoserverConfig.setString(ConfigConstants.STRATOSPHERE_BASE_DIR_PATH_KEY, configDir+"/..");
 		}
-				
+
 		// Start info server for jobmanager
 		jobManager.startInfoServer(infoserverConfig);
-		
-		
 
 		// Run the main task loop
 		jobManager.runTaskLoop();
 
 		// Clean up task are triggered through a shutdown hook
 	}
+
+//	private static void createYarnTMConfigWithJMAddress(String configDir) throws IOException {
+//		String amHost = NetUtils.determineHostAddress();
+//		String fname = configDir + File.separator + "stratosphere-conf.yaml";
+//		File configYml = new File(fname);
+//
+//		if (configYml.exists()) {
+//			Path tmpCopy = Files.copy(configYml.toPath(), new File(fname + "-yarn.tmp").toPath(), StandardCopyOption.REPLACE_EXISTING);
+//			String content = IOUtils.toString(tmpCopy.toUri());
+//			content = content.replaceAll("jobmanager\\.rpc\\.address.+", "jobmanager.rpc.address: " + amHost);
+//			//IOUtils.write(content, new FileOutputStream(myfile), myencoding);
+//			FileWriter out = new FileWriter(tmpCopy.toFile());
+//			IOUtils.write(content, out);
+//			out.close();
+//		}
+//	}
 
 	/**
 	 * {@inheritDoc}
@@ -695,7 +655,7 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 	 * This method is a convenience method to unregister a job from all of
 	 * Nephele's monitoring, profiling and optimization components at once.
 	 * Currently, it is only being used to unregister from profiling (if activated).
-	 * 
+	 *
 	 * @param executionGraph
 	 *        the execution graph to remove from the job manager
 	 */
@@ -817,7 +777,7 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 	/**
 	 * Cancels all the tasks in the current and upper stages of the
 	 * given execution graph.
-	 * 
+	 *
 	 * @param eg
 	 *        the execution graph representing the job to cancel.
 	 * @return <code>null</code> if no error occurred during the cancel attempt,
@@ -904,7 +864,7 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 				return ConnectionInfoLookupResponse.createReceiverFoundAndReady();
 			}
 
-			if (executionState != ExecutionState.RUNNING 
+			if (executionState != ExecutionState.RUNNING
 					&& executionState != ExecutionState.FINISHING
 					&& executionState != ExecutionState.SUSPENDING) {
 				// LOG.info("Created receiverNotReady for " + connectedVertex + " in state " + executionState + " 2");
@@ -990,7 +950,7 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 
 	/**
 	 * Returns current ManagementGraph from eventCollector and, if not current, from archive
-	 * 
+	 *
 	 * {@inheritDoc}
 	 */
 	@Override
@@ -1000,7 +960,7 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 		if (mg == null) {
 			if(this.archive != null)
 				mg = this.archive.getManagementGraph(jobID);
-			
+
 			if (mg == null) {
 				throw new IOException("Cannot find job with ID " + jobID);
 			}
@@ -1132,7 +1092,7 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 
 	/**
 	 * Tests whether the job manager has been shut down completely.
-	 * 
+	 *
 	 * @return <code>true</code> if the job manager has been shut down completely, <code>false</code> otherwise
 	 */
 	public boolean isShutDown() {
@@ -1346,10 +1306,10 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 
 		return new InputSplitWrapper(jobID, this.inputSplitManager.getNextInputSplit(vertex, sequenceNumber.getValue()));
 	}
-	
+
 	/**
 	 * Starts the Jetty Infoserver for the Jobmanager
-	 * 
+	 *
 	 * @param config
 	 */
 	public void startInfoServer(Configuration config) {
@@ -1364,8 +1324,8 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 			LOG.error("Cannot instantiate info server: " + StringUtils.stringifyException(e));
 		}
 	}
-	
-	
+
+
 	// TODO Add to RPC?
 	public List<RecentJobEvent> getOldJobs() throws IOException {
 
@@ -1379,7 +1339,7 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 
 		return this.archive.getJobs();
 	}
-	
+
 	public ArchiveListener getArchive() {
 		return this.archive;
 	}
@@ -1387,7 +1347,7 @@ public class JobManager implements DeploymentManager, ExtendedManagementProtocol
 	public int getNumberOfTaskTrackers() {
 		return this.instanceManager.getNumberOfTaskTrackers();
 	}
-	
+
 	public Map<InstanceConnectionInfo, ? extends AbstractInstance> getInstances() {
 		return this.instanceManager.getInstances();
 	}

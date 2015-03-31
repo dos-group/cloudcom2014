@@ -15,10 +15,9 @@
 
 package eu.stratosphere.nephele.execution;
 
+import eu.stratosphere.nephele.util.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-
-import eu.stratosphere.nephele.util.StringUtils;
 
 /**
  * This class is a utility class to check the consistency of Nephele's execution state model.
@@ -83,15 +82,12 @@ public final class ExecutionStateTransition {
 		}
 		
 		// these transitions may occur when elastic tasks are used
-		if (oldState == ExecutionState.ASSIGNED && newState == ExecutionState.SUSPENDED) {
+		if (oldState == ExecutionState.CREATED && newState == ExecutionState.SUSPENDED) {
 			unexpectedStateChange = false;
 		}
-		if (oldState == ExecutionState.SUSPENDED && newState == ExecutionState.ASSIGNED) {
+		if (oldState == ExecutionState.SUSPENDED && newState == ExecutionState.CREATED) {
 			unexpectedStateChange = false;
 		}		
-		if (oldState == ExecutionState.SUSPENDED && newState == ExecutionState.ASSIGNED) {
-			unexpectedStateChange = false;
-		}
 		if (oldState == ExecutionState.RUNNING && newState == ExecutionState.SUSPENDING) {
 			unexpectedStateChange = false;
 		}

@@ -15,23 +15,6 @@
 
 package eu.stratosphere.nephele.executiongraph;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-
 import eu.stratosphere.nephele.deployment.ChannelDeploymentDescriptor;
 import eu.stratosphere.nephele.deployment.GateDeploymentDescriptor;
 import eu.stratosphere.nephele.deployment.TaskDeploymentDescriptor;
@@ -40,20 +23,29 @@ import eu.stratosphere.nephele.execution.ExecutionState;
 import eu.stratosphere.nephele.execution.ExecutionStateTransition;
 import eu.stratosphere.nephele.instance.AllocatedResource;
 import eu.stratosphere.nephele.instance.AllocationID;
+import eu.stratosphere.nephele.instance.DummyInstance;
 import eu.stratosphere.nephele.io.DistributionPattern;
 import eu.stratosphere.nephele.io.GateID;
 import eu.stratosphere.nephele.io.IOReadableWritable;
 import eu.stratosphere.nephele.plugins.PluginID;
-import eu.stratosphere.nephele.taskmanager.AbstractTaskResult;
+import eu.stratosphere.nephele.taskmanager.*;
 import eu.stratosphere.nephele.taskmanager.AbstractTaskResult.ReturnCode;
-import eu.stratosphere.nephele.taskmanager.TaskCancelResult;
-import eu.stratosphere.nephele.taskmanager.TaskKillResult;
-import eu.stratosphere.nephele.taskmanager.TaskSubmissionResult;
-import eu.stratosphere.nephele.taskmanager.TaskSuspendResult;
 import eu.stratosphere.nephele.util.AtomicEnum;
 import eu.stratosphere.nephele.util.SerializableArrayList;
 import eu.stratosphere.nephele.util.SerializableHashMap;
 import eu.stratosphere.nephele.util.StringUtils;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
+import java.io.IOException;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * An execution vertex represents an instance of a task in a Nephele job. An execution vertex
@@ -86,6 +78,12 @@ public final class ExecutionVertex {
 	 * The execution graph is vertex belongs to.
 	 */
 	private final ExecutionGraph executionGraph;
+
+	/**
+	 * The "dummy" resource allocated to this vertex during the initial scheduling.
+	 * Dummy resources model other vertices are supposed to be executed on the same instance (task manager).
+	 */
+	private AllocatedResource dummyResource;
 
 	/**
 	 * The allocated resources assigned to this vertex.
@@ -279,7 +277,7 @@ public final class ExecutionVertex {
 	 * 
 	 * @param pos
 	 *        the position to insert the input gate
-	 * @param outputGate
+	 * @param inputGate
 	 *        the input gate to be inserted
 	 */
 	void insertInputGate(final int pos, final ExecutionGate inputGate) {
@@ -482,8 +480,12 @@ public final class ExecutionVertex {
 			throw new IllegalArgumentException("Argument allocatedResource must not be null");
 		}
 
+		if (allocatedResource.getInstance() instanceof DummyInstance) {
+			this.dummyResource = allocatedResource;
+		}
+
 		final AllocatedResource previousResource = this.allocatedResource.getAndSet(allocatedResource);
-		if (previousResource != null) {
+		if (previousResource != null && !(previousResource.getInstance() instanceof  DummyInstance)) {
 			previousResource.removeVertexFromResource(this);
 		}
 
@@ -504,6 +506,10 @@ public final class ExecutionVertex {
 	public AllocatedResource getAllocatedResource() {
 
 		return this.allocatedResource.get();
+	}
+
+	public AllocatedResource getDummyResource() {
+		return this.dummyResource;
 	}
 
 	/**

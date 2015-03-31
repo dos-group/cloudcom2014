@@ -15,48 +15,21 @@
 
 package eu.stratosphere.nephele.jobmanager.scheduler;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-
 import eu.stratosphere.nephele.execution.ExecutionState;
-import eu.stratosphere.nephele.executiongraph.ExecutionEdge;
-import eu.stratosphere.nephele.executiongraph.ExecutionGate;
-import eu.stratosphere.nephele.executiongraph.ExecutionGraph;
-import eu.stratosphere.nephele.executiongraph.ExecutionGraphIterator;
-import eu.stratosphere.nephele.executiongraph.ExecutionGroupVertex;
-import eu.stratosphere.nephele.executiongraph.ExecutionGroupVertexIterator;
-import eu.stratosphere.nephele.executiongraph.ExecutionPipeline;
-import eu.stratosphere.nephele.executiongraph.ExecutionStage;
-import eu.stratosphere.nephele.executiongraph.ExecutionVertex;
-import eu.stratosphere.nephele.executiongraph.ExecutionVertexID;
-import eu.stratosphere.nephele.executiongraph.InternalJobStatus;
-import eu.stratosphere.nephele.instance.AbstractInstance;
-import eu.stratosphere.nephele.instance.AllocatedResource;
-import eu.stratosphere.nephele.instance.AllocationID;
-import eu.stratosphere.nephele.instance.DummyInstance;
-import eu.stratosphere.nephele.instance.InstanceException;
-import eu.stratosphere.nephele.instance.InstanceListener;
-import eu.stratosphere.nephele.instance.InstanceManager;
-import eu.stratosphere.nephele.instance.InstanceRequestMap;
-import eu.stratosphere.nephele.instance.InstanceType;
+import eu.stratosphere.nephele.executiongraph.*;
+import eu.stratosphere.nephele.instance.*;
 import eu.stratosphere.nephele.jobgraph.JobID;
 import eu.stratosphere.nephele.jobgraph.JobVertexID;
 import eu.stratosphere.nephele.jobmanager.DeploymentManager;
 import eu.stratosphere.nephele.taskmanager.AbstractTaskResult.ReturnCode;
 import eu.stratosphere.nephele.taskmanager.TaskSuspendResult;
 import eu.stratosphere.nephele.util.StringUtils;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 
 /**
  * This abstract scheduler must be extended by a scheduler implementations for Nephele. The abstract class defines the
@@ -159,13 +132,7 @@ public abstract class AbstractScheduler implements InstanceListener {
 
 			executionStage.collectRequiredInstanceTypes(instanceRequestMap, ExecutionState.CREATED);
 
-			final Iterator<Map.Entry<InstanceType, Integer>> it = instanceRequestMap.getMinimumIterator();
-			LOG.info("Requesting the following instances for job " + executionGraph.getJobID());
-			while (it.hasNext()) {
-				final Map.Entry<InstanceType, Integer> entry = it.next();
-				LOG.info(" " + entry.getKey() + " [" + entry.getValue().intValue() + ", "
-					+ instanceRequestMap.getMaximumNumberOfInstances(entry.getKey()) + "]");
-			}
+			logInstanceRequests(executionGraph, instanceRequestMap);
 
 			if (instanceRequestMap.isEmpty()) {
 				return;
@@ -182,6 +149,75 @@ public abstract class AbstractScheduler implements InstanceListener {
 				it2.next().compareAndUpdateExecutionState(ExecutionState.CREATED, ExecutionState.SCHEDULED);
 			}
 		}
+	}
+
+	protected void ensureEnoughInstancesAvailable(ExecutionGraph executionGraph,
+	                                              Map<InstanceType, InstanceTypeDescription> availableInstances)
+					throws SchedulingException {
+
+		final Iterator<ExecutionStage> stageIt = executionGraph.iterator();
+		while (stageIt.hasNext()) {
+
+			final InstanceRequestMap instanceRequestMap = new InstanceRequestMap();
+			final ExecutionStage stage = stageIt.next();
+			stage.collectRequiredInstanceTypes(instanceRequestMap, ExecutionState.CREATED);
+
+			// Iterator over required Instances
+			final Iterator<Map.Entry<InstanceType, Integer>> it = instanceRequestMap.getMinimumIterator();
+			while (it.hasNext()) {
+
+				final Map.Entry<InstanceType, Integer> entry = it.next();
+
+				final InstanceTypeDescription descr = availableInstances.get(entry.getKey());
+				if (descr == null) {
+					throw new SchedulingException("Unable to schedule job: No instance of type " + entry.getKey()
+									+ " available");
+				}
+
+				if (descr.getMaximumNumberOfAvailableInstances() != -1
+								&& descr.getMaximumNumberOfAvailableInstances() < entry.getValue().intValue()) {
+					throw new SchedulingException("Unable to schedule job: " + entry.getValue().intValue()
+									+ " instances of type " + entry.getKey() + " required, but only "
+									+ descr.getMaximumNumberOfAvailableInstances() + " are available");
+				}
+			}
+		}
+	}
+
+
+	private void logInstanceRequests(ExecutionGraph executionGraph, InstanceRequestMap instanceRequestMap) {
+		final Iterator<Map.Entry<InstanceType, Integer>> it = instanceRequestMap.getMinimumIterator();
+		LOG.info("Requesting the following instances for job " + executionGraph.getJobID());
+		while (it.hasNext()) {
+			final Map.Entry<InstanceType, Integer> entry = it.next();
+			LOG.info(" " + entry.getKey() + " [" + entry.getValue().intValue() + ", "
+				+ instanceRequestMap.getMaximumNumberOfInstances(entry.getKey()) + "]");
+		}
+	}
+
+	protected void suspendElasticStandbyTasks(ExecutionStage stage) {
+			final Iterator<ExecutionGroupVertex> groupIterator = new ExecutionGroupVertexIterator(
+							stage.getExecutionGraph(), true, stage.getStageNumber());
+			while (groupIterator.hasNext()) {
+
+				final ExecutionGroupVertex groupVertex = groupIterator
+								.next();
+
+				if (!groupVertex.hasElasticNumberOfRunningSubtasks()) {
+					continue;
+				}
+
+				int initialElasticSubtasks = groupVertex.getInitialElasticNumberOfRunningSubtasks();
+				for (int i = initialElasticSubtasks;
+				     i < groupVertex.getMaxElasticNumberOfRunningSubtasks(); i++) {
+
+					ExecutionVertex vertex = groupVertex.getGroupMember(i);
+
+					if (vertex.getExecutionState() == ExecutionState.CREATED) {
+						vertex.updateExecutionState(ExecutionState.SUSPENDED);
+					}
+				}
+			}
 	}
 
 	void findVerticesToBeDeployed(final ExecutionVertex vertex,
@@ -429,35 +465,10 @@ public abstract class AbstractScheduler implements InstanceListener {
 
 					for (final AllocatedResource allocatedResource : allocatedResources) {
 
-						AllocatedResource resourceToBeReplaced = null;
-						// Important: only look for instances to be replaced in the current stage
-						final Iterator<ExecutionGroupVertex> groupIterator = new ExecutionGroupVertexIterator(eg, true,
-							stage.getStageNumber());
-						while (groupIterator.hasNext()) {
-
-							final ExecutionGroupVertex groupVertex = groupIterator.next();
-							for (int i = 0; i < groupVertex.getCurrentNumberOfGroupMembers(); ++i) {
-
-								final ExecutionVertex vertex = groupVertex.getGroupMember(i);
-
-								if (vertex.getExecutionState() == ExecutionState.SCHEDULED
-									&& vertex.getAllocatedResource() != null) {
-									// In local mode, we do not consider any topology, only the instance type
-									if (vertex.getAllocatedResource().getInstanceType().equals(
-										allocatedResource.getInstanceType())) {
-										resourceToBeReplaced = vertex.getAllocatedResource();
-										break;
-									}
-								}
-							}
-
-							if (resourceToBeReplaced != null) {
-								break;
-							}
-						}
+						AllocatedResource dummyResource = findNextDummyResource(stage, allocatedResource);
 
 						// For some reason, we don't need this instance
-						if (resourceToBeReplaced == null) {
+						if (dummyResource == null) {
 							LOG.error("Instance " + allocatedResource.getInstance() + " is not required for job"
 								+ eg.getJobID());
 							try {
@@ -470,7 +481,7 @@ public abstract class AbstractScheduler implements InstanceListener {
 						}
 
 						// Replace the selected instance
-						final Iterator<ExecutionVertex> it = resourceToBeReplaced.assignedVertices();
+						final Iterator<ExecutionVertex> it = dummyResource.assignedVertices();
 						while (it.hasNext()) {
 							final ExecutionVertex vertex = it.next();
 							vertex.setAllocatedResource(allocatedResource);
@@ -478,40 +489,40 @@ public abstract class AbstractScheduler implements InstanceListener {
 						}
 					}
 				}
-				
-				suspendElasticStandbyTasks(eg);
 
 				// Deploy the assigned vertices
 				deployAssignedInputVertices(eg);
 			}
-			
-			private void suspendElasticStandbyTasks(ExecutionGraph eg) {
-				final ExecutionStage stage = eg.getCurrentExecutionStage();
 
-				synchronized (stage) {
-					final Iterator<ExecutionGroupVertex> groupIterator = new ExecutionGroupVertexIterator(
-							eg, true, stage.getStageNumber());
-					while (groupIterator.hasNext()) {
+			private AllocatedResource findNextDummyResource(ExecutionStage stage, AllocatedResource allocatedResource) {
+				AllocatedResource dummyResource = null;
 
-						final ExecutionGroupVertex groupVertex = groupIterator
-								.next();
+				// Important: only look for instances to be replaced in the current stage
+				final Iterator<ExecutionGroupVertex> groupIterator = new ExecutionGroupVertexIterator(eg, true,
+					stage.getStageNumber());
+				while (groupIterator.hasNext()) {
 
-						if (!groupVertex.hasElasticNumberOfRunningSubtasks()) {
-							continue;
-						}
+					final ExecutionGroupVertex groupVertex = groupIterator.next();
+					for (int i = 0; i < groupVertex.getCurrentNumberOfGroupMembers(); ++i) {
 
-						int initialElasticSubtasks = groupVertex.getInitialElasticNumberOfRunningSubtasks();
-						for (int i = initialElasticSubtasks; 
-								i < groupVertex.getMaxElasticNumberOfRunningSubtasks(); i++) {
+						final ExecutionVertex vertex = groupVertex.getGroupMember(i);
 
-							ExecutionVertex vertex = groupVertex.getGroupMember(i);
-
-							if (vertex.getExecutionState() == ExecutionState.ASSIGNED) {
-								vertex.updateExecutionState(ExecutionState.SUSPENDED);
+						if (vertex.getExecutionState() == ExecutionState.SCHEDULED
+							&& vertex.getAllocatedResource() != null) {
+							// In local mode, we do not consider any topology, only the instance type
+							if (vertex.getAllocatedResource().getInstanceType().equals(
+								allocatedResource.getInstanceType())) {
+								dummyResource = vertex.getAllocatedResource();
+								break;
 							}
 						}
 					}
+
+					if (dummyResource != null) {
+						break;
+					}
 				}
+				return dummyResource;
 			}
 		};
 
@@ -713,6 +724,17 @@ public abstract class AbstractScheduler implements InstanceListener {
 		final ExecutionGraph graph = getExecutionGraphByID(jobID);
 		final ExecutionGroupVertex startGroupVertex = graph.getExecutionGroupVertex(jobVertexID);
 
+
+//		AllocatedResource availableResource = getMaybeAvailableResource(vertex);
+//		// check of other vertices of the dummy instance are already assigned
+//		Iterator<ExecutionVertex> otherIter = vertex.getAllocatedResource().assignedVertices();
+//		while(otherIter.hasNext()) {
+//			ExecutionVertex otherOnResource = otherIter.next();
+//			if(!(otherOnResource.getAllocatedResource().getInstance() instanceof DummyInstance)) {
+//
+//			}
+//		}
+
 		Runnable command = new Runnable() {
 
 			@Override
@@ -736,10 +758,10 @@ public abstract class AbstractScheduler implements InstanceListener {
 				    verticesToBeDeployed.addAll(vertexToStart.findAllVerticesOnScalingPath());
 				}
 				
-				// switch vertices from SUSPENDED to ASSIGNED
+				// switch vertices from SUSPENDED to CREATED
 				for (ExecutionVertex vertex : verticesToBeDeployed) {
 					if (vertex.getExecutionState() == ExecutionState.SUSPENDED) {
-						vertex.compareAndUpdateExecutionState(ExecutionState.SUSPENDED, ExecutionState.ASSIGNED);
+						vertex.compareAndUpdateExecutionState(ExecutionState.SUSPENDED, ExecutionState.CREATED);
 					} else {
 						throw new RuntimeException(
 								"Found vertex " + vertex.getName() + " in unexpected state "
@@ -749,6 +771,12 @@ public abstract class AbstractScheduler implements InstanceListener {
 
 				LOG.info("Scaling up groupVertex " + startGroupVertex.getName()
 						+ " by activating vertices: " + Arrays.toString(verticesToBeDeployed.toArray()));
+
+				try {
+					requestInstances(graph.getCurrentExecutionStage());
+				} catch (InstanceException e) {
+					throw new RuntimeException(e.getMessage(), e);
+				}
 
 				deployAssignedVertices(verticesToBeDeployed);
 			}

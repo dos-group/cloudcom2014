@@ -15,16 +15,15 @@
 
 package eu.stratosphere.nephele.jobmanager;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-
 import eu.stratosphere.nephele.instance.InstanceManager;
 import eu.stratosphere.nephele.jobmanager.JobManager.ExecutionMode;
 import eu.stratosphere.nephele.jobmanager.scheduler.AbstractScheduler;
 import eu.stratosphere.nephele.util.StringUtils;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 
 /**
  * This class provides static utility methods for the {@link JobManager}.
@@ -150,18 +149,11 @@ public class JobManagerUtils {
 		case LOCAL:
 			return "eu.stratosphere.nephele.jobmanager.scheduler.local.LocalScheduler";
 		case CLUSTER:
+		case YARN:
 			return "eu.stratosphere.nephele.jobmanager.scheduler.queue.QueueScheduler";
 		default:
 			throw new RuntimeException("Unrecognized Execution Mode.");
 		}
-//		String modeClass = getClassStringForMode(executionMode);
-//		String instanceManagerClassNameKey = "jobmanager.scheduler." + modeClass + ".classname";
-//		String schedulerClassName = GlobalConfiguration.getString(instanceManagerClassNameKey, null);
-//
-//		if (executionMode == ExecutionMode.LOCAL && schedulerClassName == null) {
-//			schedulerClassName = ConfigConstants.DEFAULT_LOCAL_MODE_SCHEDULER;
-//		}
-//		return schedulerClassName;
 	}
 
 	/**
@@ -178,12 +170,10 @@ public class JobManagerUtils {
 			return "eu.stratosphere.nephele.instance.local.LocalInstanceManager";
 		case CLUSTER:
 			return "eu.stratosphere.nephele.instance.cluster.ClusterManager";
+		case YARN:
+			return "eu.stratosphere.nephele.instance.yarn.YarnInstanceManager";
 		default:
 			throw new RuntimeException("Unrecognized Execution Mode.");
 		}
-//		
-//		final String modeClass = getClassStringForMode(executionMode);
-//		final String instanceManagerClassNameKey = "jobmanager.instancemanager." + modeClass + ".classname";
-//		return GlobalConfiguration.getString(instanceManagerClassNameKey, null);
 	}
 }

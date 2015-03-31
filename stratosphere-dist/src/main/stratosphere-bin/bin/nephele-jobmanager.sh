@@ -73,8 +73,15 @@ case $STARTSTOP in
         rotateLogFile $log
         rotateLogFile $out
 
-        echo Starting Nephele job manager
-        $JAVA_RUN $JVM_ARGS $NEPHELE_OPTS $log_setting -classpath $NEPHELE_JM_CLASSPATH eu.stratosphere.nephele.jobmanager.JobManager -executionMode $EXECUTIONMODE -configDir $NEPHELE_CONF_DIR  > "$out" 2>&1 < /dev/null &
+        ALL_ARGS="$JVM_ARGS $NEPHELE_OPTS $log_setting -classpath $NEPHELE_JM_CLASSPATH eu.stratosphere.nephele.jobmanager.JobManager -executionMode $EXECUTIONMODE -configDir $NEPHELE_CONF_DIR"
+
+        echo "Starting Nephele job manager"
+        if [ "$EXECUTIONMODE" = yarn ] ; then
+            # when launched via yarn, the job manager must not be backgrounded (otherwise the yarn NM kills the container)
+            $JAVA_RUN $ALL_ARGS > "$out" 2>&1
+        else
+            $JAVA_RUN$ALL_ARGS  > "$out" 2>&1 < /dev/null &
+        fi
         echo $! > $pid
     ;;
 

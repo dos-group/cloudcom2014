@@ -15,22 +15,9 @@
 
 package eu.stratosphere.nephele.jobmanager.scheduler.queue;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
-import java.util.Iterator;
-import java.util.Map;
-
-import eu.stratosphere.nephele.execution.ExecutionState;
-import eu.stratosphere.nephele.executiongraph.ExecutionGraph;
-import eu.stratosphere.nephele.executiongraph.ExecutionGraphIterator;
-import eu.stratosphere.nephele.executiongraph.ExecutionStage;
-import eu.stratosphere.nephele.executiongraph.ExecutionStageListener;
-import eu.stratosphere.nephele.executiongraph.ExecutionVertex;
-import eu.stratosphere.nephele.executiongraph.InternalJobStatus;
-import eu.stratosphere.nephele.executiongraph.JobStatusListener;
+import eu.stratosphere.nephele.executiongraph.*;
 import eu.stratosphere.nephele.instance.InstanceException;
 import eu.stratosphere.nephele.instance.InstanceManager;
-import eu.stratosphere.nephele.instance.InstanceRequestMap;
 import eu.stratosphere.nephele.instance.InstanceType;
 import eu.stratosphere.nephele.instance.InstanceTypeDescription;
 import eu.stratosphere.nephele.jobgraph.JobID;
@@ -38,6 +25,11 @@ import eu.stratosphere.nephele.jobmanager.DeploymentManager;
 import eu.stratosphere.nephele.jobmanager.scheduler.AbstractScheduler;
 import eu.stratosphere.nephele.jobmanager.scheduler.SchedulingException;
 import eu.stratosphere.nephele.util.StringUtils;
+
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Iterator;
+import java.util.Map;
 
 /**
  * The queue scheduler mains of queue of all submitted jobs and executes one job at a time.
@@ -103,33 +95,7 @@ public class QueueScheduler extends AbstractScheduler implements JobStatusListen
 		final Map<InstanceType, InstanceTypeDescription> availableInstances = getInstanceManager()
 				.getMapOfAvailableInstanceTypes();
 
-		final Iterator<ExecutionStage> stageIt = executionGraph.iterator();
-		while (stageIt.hasNext()) {
-
-			final InstanceRequestMap instanceRequestMap = new InstanceRequestMap();
-			final ExecutionStage stage = stageIt.next();
-			stage.collectRequiredInstanceTypes(instanceRequestMap, ExecutionState.CREATED);
-
-			// Iterator over required Instances
-			final Iterator<Map.Entry<InstanceType, Integer>> it = instanceRequestMap.getMinimumIterator();
-			while (it.hasNext()) {
-
-				final Map.Entry<InstanceType, Integer> entry = it.next();
-
-				final InstanceTypeDescription descr = availableInstances.get(entry.getKey());
-				if (descr == null) {
-					throw new SchedulingException("Unable to schedule job: No instance of type " + entry.getKey()
-							+ " available");
-				}
-
-				if (descr.getMaximumNumberOfAvailableInstances() != -1
-						&& descr.getMaximumNumberOfAvailableInstances() < entry.getValue().intValue()) {
-					throw new SchedulingException("Unable to schedule job: " + entry.getValue().intValue()
-							+ " instances of type " + entry.getKey() + " required, but only "
-							+ descr.getMaximumNumberOfAvailableInstances() + " are available");
-				}
-			}
-		}
+		ensureEnoughInstancesAvailable(executionGraph, availableInstances);
 
 		// Subscribe to job status notifications
 		executionGraph.registerJobStatusListener(this);
@@ -151,8 +117,8 @@ public class QueueScheduler extends AbstractScheduler implements JobStatusListen
 		}
 
 		// Request resources for the first stage of the job
-
 		final ExecutionStage executionStage = executionGraph.getCurrentExecutionStage();
+		suspendElasticStandbyTasks(executionStage);
 		try {
 			requestInstances(executionStage);
 		} catch (InstanceException e) {

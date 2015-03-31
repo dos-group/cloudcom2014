@@ -15,21 +15,20 @@
 
 package eu.stratosphere.nephele.executiongraph;
 
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.CopyOnWriteArrayList;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-
 import eu.stratosphere.nephele.execution.ExecutionState;
 import eu.stratosphere.nephele.instance.AbstractInstance;
 import eu.stratosphere.nephele.instance.DummyInstance;
 import eu.stratosphere.nephele.instance.InstanceRequestMap;
 import eu.stratosphere.nephele.instance.InstanceType;
 import eu.stratosphere.nephele.io.channels.ChannelType;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * An execution stage contains all execution group vertices (and as a result all execution vertices) which
@@ -279,7 +278,6 @@ public final class ExecutionStage {
 					}
 
 					if (instance instanceof DummyInstance) {
-
 						final InstanceType instanceType = instance.getType();
 						int num = instanceRequestMap.getMaximumNumberOfInstances(instanceType);
 						++num;
@@ -289,9 +287,6 @@ public final class ExecutionStage {
 							++num;
 							instanceRequestMap.setMinimumNumberOfInstances(instanceType, num);
 						}
-					} else {
-						LOG.debug("Execution Vertex " + vertex.getName() + " (" + vertex.getID()
-							+ ") is already assigned to non-dummy instance, skipping...");
 					}
 				}
 			}

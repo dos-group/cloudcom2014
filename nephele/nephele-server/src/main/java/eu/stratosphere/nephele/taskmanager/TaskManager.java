@@ -15,40 +15,10 @@
 
 package eu.stratosphere.nephele.taskmanager;
 
-import java.io.File;
-import java.io.IOException;
-import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.UnknownHostException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.Timer;
-import java.util.TimerTask;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.CommandLineParser;
-import org.apache.commons.cli.GnuParser;
-import org.apache.commons.cli.Option;
-import org.apache.commons.cli.OptionBuilder;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.ParseException;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-
 import eu.stratosphere.nephele.configuration.ConfigConstants;
 import eu.stratosphere.nephele.configuration.Configuration;
 import eu.stratosphere.nephele.configuration.GlobalConfiguration;
 import eu.stratosphere.nephele.deployment.TaskDeploymentDescriptor;
-import eu.stratosphere.nephele.discovery.DiscoveryException;
-import eu.stratosphere.nephele.discovery.DiscoveryService;
 import eu.stratosphere.nephele.execution.Environment;
 import eu.stratosphere.nephele.execution.ExecutionState;
 import eu.stratosphere.nephele.execution.RuntimeEnvironment;
@@ -72,11 +42,7 @@ import eu.stratosphere.nephele.plugins.PluginManager;
 import eu.stratosphere.nephele.plugins.TaskManagerPlugin;
 import eu.stratosphere.nephele.profiling.ProfilingUtils;
 import eu.stratosphere.nephele.profiling.TaskManagerProfiler;
-import eu.stratosphere.nephele.protocols.ChannelLookupProtocol;
-import eu.stratosphere.nephele.protocols.InputSplitProviderProtocol;
-import eu.stratosphere.nephele.protocols.JobManagerProtocol;
-import eu.stratosphere.nephele.protocols.PluginCommunicationProtocol;
-import eu.stratosphere.nephele.protocols.TaskOperationProtocol;
+import eu.stratosphere.nephele.protocols.*;
 import eu.stratosphere.nephele.services.iomanager.IOManager;
 import eu.stratosphere.nephele.services.memorymanager.MemoryManager;
 import eu.stratosphere.nephele.services.memorymanager.spi.DefaultMemoryManager;
@@ -86,6 +52,20 @@ import eu.stratosphere.nephele.taskmanager.runtime.ExecutorThreadFactory;
 import eu.stratosphere.nephele.taskmanager.runtime.RuntimeTask;
 import eu.stratosphere.nephele.util.SerializableArrayList;
 import eu.stratosphere.nephele.util.StringUtils;
+import org.apache.commons.cli.*;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
+import java.io.File;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.UnknownHostException;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * A task manager receives tasks from the job manager and executes them. After having executed them
@@ -97,6 +77,10 @@ import eu.stratosphere.nephele.util.StringUtils;
 public class TaskManager implements TaskOperationProtocol, PluginCommunicationProtocol {
 
 	private static final Log LOG = LogFactory.getLog(TaskManager.class);
+
+	public static final String ENV_YARN_MODE_NEPHELE_JM_RPC_ADDRESS = "YARN_MODE_NEPHELE_JM_ADDRESS";
+
+	public static final String ENV_YARN_MODE_NEPHELE_JM_RPC_PORT = "YARN_MODE_NEPHELE_JM_RPC_PORT";
 
 	private final JobManagerProtocol jobManager;
 
@@ -162,13 +146,7 @@ public class TaskManager implements TaskOperationProtocol, PluginCommunicationPr
 		final String address = GlobalConfiguration.getString(ConfigConstants.JOB_MANAGER_IPC_ADDRESS_KEY, null);
 		InetSocketAddress jobManagerAddress = null;
 		if (address == null) {
-			// Address is null, use discovery manager to determine address
-			LOG.info("Using discovery service to locate job manager");
-			try {
-				jobManagerAddress = DiscoveryService.getJobManagerAddress();
-			} catch (DiscoveryException e) {
-				throw new Exception("Failed to locate job manager via discovery: " + e.getMessage(), e);
-			}
+				throw new Exception("Job manager RPC address is null");
 		} else {
 			LOG.info("Reading location of job manager from configuration");
 
@@ -192,13 +170,7 @@ public class TaskManager implements TaskOperationProtocol, PluginCommunicationPr
 		final int dataPort = GlobalConfiguration.getInteger(ConfigConstants.TASK_MANAGER_DATA_PORT_KEY,
 			ConfigConstants.DEFAULT_TASK_MANAGER_DATA_PORT);
 
-		InetAddress taskManagerAddress = null;
-
-		try {
-			taskManagerAddress = DiscoveryService.getTaskManagerAddress(jobManagerAddress.getAddress());
-		} catch (DiscoveryException e) {
-			throw new Exception("Failed to initialize discovery service. " + e.getMessage(), e);
-		}
+		InetAddress taskManagerAddress = InetAddress.getByName(NetUtils.determineHostAddress());
 
 		this.localInstanceConnectionInfo = new InstanceConnectionInfo(taskManagerAddress, ipcPort, dataPort);
 
@@ -350,8 +322,21 @@ public class TaskManager implements TaskOperationProtocol, PluginCommunicationPr
 
 		String configDir = line.getOptionValue(configDirOpt.getOpt(), null);
 		
-		// First, try to load global configuration
+		// First, load global configuration
 		GlobalConfiguration.loadConfiguration(configDir);
+
+		// If in yarn mode (determined by environment variable, override the jobmanager rpc address and port
+		Map<String, String> env = System.getenv();
+		if (env.containsKey(ENV_YARN_MODE_NEPHELE_JM_RPC_ADDRESS)) {
+			if (!env.containsKey(ENV_YARN_MODE_NEPHELE_JM_RPC_PORT)) {
+				throw new IllegalArgumentException("Missing environment variable in YARN mode: " + ENV_YARN_MODE_NEPHELE_JM_RPC_PORT);
+			}
+
+			Configuration confOverride = new Configuration();
+			confOverride.setString(ConfigConstants.JOB_MANAGER_IPC_ADDRESS_KEY, env.get(ENV_YARN_MODE_NEPHELE_JM_RPC_ADDRESS));
+			confOverride.setInteger(ConfigConstants.JOB_MANAGER_IPC_PORT_KEY, Integer.parseInt(env.get(ENV_YARN_MODE_NEPHELE_JM_RPC_PORT)));
+			GlobalConfiguration.includeConfiguration(confOverride);
+		}
 
 		// Create a new task manager object
 		TaskManager taskManager = null;
@@ -542,8 +527,6 @@ public class TaskManager implements TaskOperationProtocol, PluginCommunicationPr
 	 *        the job configuration that has been attached to the original job graph
 	 * @param environment
 	 *        the environment of the task to be registered
-	 * @param initialCheckpointState
-	 *        the task's initial checkpoint state
 	 * @param activeOutputChannels
 	 *        the set of initially active output channels
 	 * @param pluginData
