@@ -9,10 +9,9 @@ import eu.stratosphere.nephele.streaming.taskmanager.qosreporter.sampling.Sample
  * microseconds.
  */
 public class InputGateInterReadTimeSampler {
-	
+
 	/**
-	 * Samples the elapsed time between a read on the input gate identified
-	 * {@link #inputGateIndex} and the next read on any other input gate.
+	 * Samples the elapsed time between a read on the input gate and the next read on any other input gate.
 	 * Elapsed time is sampled in microseconds.
 	 */
 	private final BernoulliSampler readReadTimeSampler;

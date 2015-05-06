@@ -63,7 +63,7 @@ public class InputGateInterArrivalTimeSampler {
 
 	private void startSampleIfNecessary(int channelIndex) {
 		if (interarrivalTimeSampler.shouldTakeSamplePoint()) {
-			accBufferInterarrivalTimes[channelIndex] = Long.valueOf(0);
+			accBufferInterarrivalTimes[channelIndex] = 0L;
 		}
 	}
 	
